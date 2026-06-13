@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/icon.svg" width="108" alt="SharkCtl">
+  <img src="assets/icon.png" width="108" alt="SharkCtl">
   <h1>SharkCtl</h1>
   <p>Configurador nativo do <strong>Attack Shark X11</strong> para Linux</p>
 
