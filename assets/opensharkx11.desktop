@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=OpenSharkX11
+GenericName=Attack Shark X11 Configurator
+Comment=Configure DPI, RGB, buttons and macros for the Attack Shark X11
+Exec=opensharkx11 %U
+Icon=opensharkx11
+Terminal=false
+Categories=Settings;HardwareSettings;Utility;
+Keywords=mouse;attack shark;dpi;rgb;macro;gaming;
+StartupWMClass=opensharkx11

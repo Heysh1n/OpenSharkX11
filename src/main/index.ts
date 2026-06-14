@@ -16,7 +16,7 @@ import { LedMode, type RgbColor } from './driver/src/types.js'
 import { UserPreferencesBuilder, LightMode } from './driver/src/protocols/UserPreferencesBuilder.js'
 
 // ─── persistência ─────────────────────────────────────────────────────────────
-const CFG = join(homedir(), '.config', 'sharkctl')
+const CFG = join(homedir(), '.config', 'opensharkx11')
 mkdirSync(CFG, { recursive: true })
 const STATE_FILE = join(CFG, 'state.json')
 const PROFILES_FILE = join(CFG, 'profiles.json')
@@ -203,9 +203,9 @@ function createWindow(): void {
     backgroundColor: '#070b10',
     show: false,
     autoHideMenuBar: true,
-    // assets/ é empacotado dentro do app.asar (PKGBUILD via asar pack), acessível
-    // via __dirname relativo tanto em dev quanto empacotado
-    icon: join(__dirname, '../../assets/icon.png'),
+    icon: is.dev
+      ? join(__dirname, '../../assets/icon.png')
+      : join(process.resourcesPath, 'assets', 'icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -229,7 +229,7 @@ function createWindow(): void {
 
 // ─── IPC ──────────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('dev.clevs.sharkctl')
+  electronApp.setAppUserModelId('dev.clevs.opensharkx11')
   app.on('browser-window-created', (_, w) => optimizer.watchWindowShortcuts(w))
   createWindow()
   app.on('activate', () => {

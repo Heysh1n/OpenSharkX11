@@ -1,17 +1,17 @@
 # Maintainer: Clevs
-# AUR: sharkctl-git — builds from GitHub main branch
-pkgname=sharkctl-git
+# AUR: opensharkx11-git — builds from GitHub main branch
+pkgname=opensharkx11-git
 pkgver=r1.g0000000
 pkgrel=1
-pkgdesc="Configurador nativo para o mouse Attack Shark X11 (Electron)"
+pkgdesc="Native Linux configurator for the Attack Shark X11 mouse (Electron)"
 arch=('x86_64')
 url="https://github.com/clevim/OpenSharkX11"
 license=('MIT')
 depends=('electron34' 'libusb')
 makedepends=('nodejs' 'npm' 'git')
-provides=('sharkctl')
-conflicts=('sharkctl')
-install="sharkctl.install"
+provides=('opensharkx11')
+conflicts=('opensharkx11')
+install="opensharkx11.install"
 source=("$pkgname::git+https://github.com/clevim/OpenSharkX11.git")
 sha256sums=('SKIP')
 
@@ -44,22 +44,22 @@ build() {
 package() {
   cd "$pkgname"
 
-  install -Dm755 /dev/stdin "${pkgdir}/usr/bin/sharkctl" <<'LAUNCHER'
+  install -Dm755 /dev/stdin "${pkgdir}/usr/bin/opensharkx11" <<'LAUNCHER'
 #!/bin/sh
-exec electron34 /usr/lib/sharkctl/app.asar "$@"
+exec electron34 /usr/lib/opensharkx11/app.asar "$@"
 LAUNCHER
 
-  install -Dm644 app.asar "${pkgdir}/usr/lib/sharkctl/app.asar"
+  install -Dm644 app.asar "${pkgdir}/usr/lib/opensharkx11/app.asar"
   if [ -d app.asar.unpacked ]; then
-    cp -r app.asar.unpacked "${pkgdir}/usr/lib/sharkctl/app.asar.unpacked"
+    cp -r app.asar.unpacked "${pkgdir}/usr/lib/opensharkx11/app.asar.unpacked"
   fi
 
-  install -Dm644 assets/sharkctl.desktop "${pkgdir}/usr/share/applications/sharkctl.desktop"
-  install -Dm644 assets/icon.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/sharkctl.svg"
+  install -Dm644 assets/opensharkx11.desktop "${pkgdir}/usr/share/applications/opensharkx11.desktop"
+  install -Dm644 assets/icon.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/opensharkx11.svg"
   for size in 16 24 32 48 64 128 256 512; do
     if [ -f "assets/icons/${size}x${size}.png" ]; then
       install -Dm644 "assets/icons/${size}x${size}.png" \
-        "${pkgdir}/usr/share/icons/hicolor/${size}x${size}/apps/sharkctl.png"
+        "${pkgdir}/usr/share/icons/hicolor/${size}x${size}/apps/opensharkx11.png"
     fi
   done
 

@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="assets/icon.png" width="108" alt="SharkCtl">
-  <h1>SharkCtl</h1>
+  <img src="assets/icon.png" width="108" alt="OpenSharkX11">
+  <h1>OpenSharkX11</h1>
   <p>Native Linux configurator for the <strong>Attack Shark X11</strong> mouse</p>
 
   <p>
@@ -44,13 +44,13 @@ Cockpit-style interface: frameless window, sidebar with a clickable mouse diagra
 
 ### Arch / CachyOS — AUR (recommended)
 
-Installs with app menu icon, `.desktop` shortcut, udev rule, and binary at `/usr/bin/sharkctl`.
+Installs with app menu icon, `.desktop` shortcut, udev rule, and binary at `/usr/bin/opensharkx11`.
 
 **With yay / paru:**
 ```bash
-yay -S sharkctl-git
+yay -S opensharkx11-git
 # or
-paru -S sharkctl-git
+paru -S opensharkx11-git
 ```
 
 **Manual build from the cloned repository:**
@@ -66,7 +66,7 @@ cd aur && makepkg -si
 
 To remove:
 ```bash
-sudo pacman -R sharkctl
+sudo pacman -R opensharkx11
 ```
 
 ---
@@ -74,15 +74,15 @@ sudo pacman -R sharkctl
 ### AppImage — any Linux distro
 
 ```bash
-# 1. Download SharkCtl-1.0.0.AppImage from the releases page
-chmod +x SharkCtl-1.0.0.AppImage
+# 1. Download opensharkx11-1.0.0.AppImage from the releases page
+chmod +x opensharkx11-1.0.0.AppImage
 
 # 2. Install the udev rule (USB access without root)
 sudo cp aur/99-attack-shark-x11.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
 
 # 3. Run
-./SharkCtl-1.0.0.AppImage
+./opensharkx11-1.0.0.AppImage
 ```
 
 ---
@@ -90,8 +90,8 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 ### .deb — Ubuntu / Debian
 
 ```bash
-# Download sharkctl-1.0.0.deb from the releases page
-sudo dpkg -i sharkctl-1.0.0.deb
+# Download opensharkx11-1.0.0.deb from the releases page
+sudo dpkg -i opensharkx11-1.0.0.deb
 # udev rule is installed automatically
 ```
 
@@ -112,7 +112,7 @@ npm run dev
 
 ```bash
 npm run dist
-# outputs dist/SharkCtl-1.0.0.AppImage and dist/sharkctl-1.0.0.deb
+# outputs dist/opensharkx11-1.0.0.AppImage and dist/opensharkx11-1.0.0.deb
 ```
 
 ---
@@ -144,7 +144,7 @@ src/
     ├── i18n.jsx           — translations and accent color themes
     └── style.css          — cockpit design system
 
-assets/                    — icons (SVG + PNG) and sharkctl.desktop
+assets/                    — icons (SVG + PNG) and opensharkx11.desktop
 aur/                       — PKGBUILD for Arch / CachyOS
 docs/protocol/             — USB HID reverse engineering
 scripts/                   — lighting diagnostics and Electron setup

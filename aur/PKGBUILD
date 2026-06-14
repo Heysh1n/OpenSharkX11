@@ -1,8 +1,8 @@
 # Maintainer: Clevs
-pkgname=sharkctl
+pkgname=opensharkx11
 pkgver=1.0.0
 pkgrel=1
-pkgdesc="Configurador nativo para o mouse Attack Shark X11 (Electron)"
+pkgdesc="Native Linux configurator for the Attack Shark X11 mouse (Electron)"
 arch=('x86_64')
 url="https://github.com/clevim/OpenSharkX11"
 license=('MIT')
@@ -18,16 +18,16 @@ sha256sums=()
 
 prepare() {
   # copia o projeto (pasta pai de aur/) para srcdir, ignorando artefatos pesados
-  mkdir -p "${srcdir}/sharkctl"
+  mkdir -p "${srcdir}/opensharkx11"
   cd "${startdir}/.."
   for item in src assets aur package.json package-lock.json tsconfig.json \
               electron.vite.config.ts scripts README.md; do
-    if [ -e "$item" ]; then cp -r "$item" "${srcdir}/sharkctl/"; fi
+    if [ -e "$item" ]; then cp -r "$item" "${srcdir}/opensharkx11/"; fi
   done
 }
 
 build() {
-  cd "${srcdir}/sharkctl"
+  cd "${srcdir}/opensharkx11"
 
   npm install --no-audit --no-fund
   npm run build
@@ -42,7 +42,7 @@ build() {
 }
 
 package() {
-  cd "${srcdir}/sharkctl"
+  cd "${srcdir}/opensharkx11"
 
   install -Dm755 /dev/stdin "${pkgdir}/usr/bin/${pkgname}" <<LAUNCHER
 #!/bin/sh
@@ -54,13 +54,12 @@ LAUNCHER
     cp -r app.asar.unpacked "${pkgdir}/usr/lib/${pkgname}/app.asar.unpacked"
   fi
 
-  install -Dm644 assets/sharkctl.desktop "${pkgdir}/usr/share/applications/sharkctl.desktop"
-  install -Dm644 assets/icon.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/sharkctl.svg"
+  install -Dm644 assets/opensharkx11.desktop "${pkgdir}/usr/share/applications/opensharkx11.desktop"
+  install -Dm644 assets/icon.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/opensharkx11.svg"
   for size in 16 24 32 48 64 128 256 512; do
     install -Dm644 "assets/icons/${size}x${size}.png" \
-      "${pkgdir}/usr/share/icons/hicolor/${size}x${size}/apps/sharkctl.png"
+      "${pkgdir}/usr/share/icons/hicolor/${size}x${size}/apps/opensharkx11.png"
   done
 
   install -Dm644 aur/99-attack-shark-x11.rules "${pkgdir}/usr/lib/udev/rules.d/99-attack-shark-x11.rules"
-  install -Dm644 aur/sharkctl.service "${pkgdir}/usr/lib/systemd/user/sharkctl.service"
 }

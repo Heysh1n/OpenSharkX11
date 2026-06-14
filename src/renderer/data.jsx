@@ -85,8 +85,8 @@ export const SHORTCUT_PRESETS = [
 ]
 
 export const BOOT_LOG = [
-  {tag:'sys', cls:'sys', t:'00:00.00', m:'sharkctl v1.0.0 · electron 34 · linux x86_64'},
-  {tag:'usb', cls:'inf', t:'00:00.01', m:'aguardando conexão com o mouse…'},
+  {tag:'sys', cls:'sys', t:'00:00.00', m:'opensharkx11 v1.0.0 · electron 34 · linux x86_64'},
+  {tag:'usb', cls:'inf', t:'00:00.01', m:'waiting for mouse connection…'},
 ]
 
 export const SECTION_IDX = {

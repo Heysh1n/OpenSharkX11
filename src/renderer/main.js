@@ -219,7 +219,7 @@ function buildShell() {
       <path d="M128 30 C150 30 168 84 176 148 C180 182 174 208 156 208 C144 208 134 197 128 180 C122 197 112 208 100 208 C82 208 76 182 80 148 C88 84 106 30 128 30 Z" fill="currentColor"/>
       <path d="M48 206 C76 218 100 222 128 222 C156 222 180 218 208 206" stroke="currentColor" stroke-width="14" fill="none" stroke-linecap="round" opacity=".5"/>
     </svg>
-    SharkCtl
+    OpenSharkX11
   </div>
   <div class="titlebar-spacer"></div>
   <div class="win-btns">
@@ -958,7 +958,7 @@ async function renderProfiles() {
   }
   $('#prof-export').onclick = () => {
     const blob = new Blob([JSON.stringify(config,null,2)],{type:'application/json'})
-    const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='sharkctl-perfil.json'; a.click()
+    const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='opensharkx11-profile.json'; a.click()
   }
   $('#prof-import-btn').onclick = () => $('#prof-import').click()
   $('#prof-import').onchange = async e => {

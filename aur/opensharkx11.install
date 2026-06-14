@@ -2,10 +2,10 @@ post_install() {
   udevadm control --reload-rules 2>/dev/null || true
   udevadm trigger 2>/dev/null || true
   gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
-  echo "==> SharkCtl instalado! Abra pelo menu de aplicativos."
+  echo "==> OpenSharkX11 installed! Open it from the application menu."
 }
 post_upgrade() {
   udevadm control --reload-rules 2>/dev/null || true
   gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
 }
-post_remove()  { echo "==> Config preservada em ~/.config/sharkctl (apague se quiser)."; }
+post_remove()  { echo "==> Config preserved at ~/.config/opensharkx11 (delete if you want)."; }

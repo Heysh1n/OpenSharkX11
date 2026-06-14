@@ -153,9 +153,9 @@ function loadLS(k,def){ try{ const v=localStorage.getItem(k); return v===null?de
 const api = window.api
 
 export default function App(){
-  const [theme,setThemeSt] = useState(()=>loadLS('sharkctl_theme','dark'))
-  const [lang,setLangSt]   = useState(()=>loadLS('sharkctl_lang','pt'))
-  const [accent,setAccentSt]= useState(()=>loadLS('sharkctl_accent','cyan'))
+  const [theme,setThemeSt] = useState(()=>loadLS('osx11_theme','dark'))
+  const [lang,setLangSt]   = useState(()=>loadLS('osx11_lang','pt'))
+  const [accent,setAccentSt]= useState(()=>loadLS('osx11_accent','cyan'))
   const [section,setSection] = useState('console')
 
   const [connected, setConnected]   = useState(false)
@@ -168,7 +168,7 @@ export default function App(){
 
   const [state,setState] = useState(()=>{
     let btnPos = Object.fromEntries(BUTTONS.map(b=>[b.id,{x:b.x,y:b.y}]))
-    try{ const saved=JSON.parse(localStorage.getItem('sharkctl_btnpos')||'null'); if(saved) btnPos={...btnPos,...saved} }catch(_){}
+    try{ const saved=JSON.parse(localStorage.getItem('osx11_btnpos')||'null'); if(saved) btnPos={...btnPos,...saved} }catch(_){}
     return {
       conn:'disconnected', autoReconnect:true, batt:0,
       dpi:DPI_DEFAULT.map(d=>({...d})), activeStage:2,
@@ -192,9 +192,9 @@ export default function App(){
     setTimeout(()=>setToastMsg(null), 3000)
   },[])
 
-  const setTheme = (v)=>{ setThemeSt(v); localStorage.setItem('sharkctl_theme',JSON.stringify(v)) }
-  const setLang  = (v)=>{ setLangSt(v);  localStorage.setItem('sharkctl_lang',JSON.stringify(v)); document.documentElement.lang=v }
-  const setAccent= (v)=>{ setAccentSt(v);localStorage.setItem('sharkctl_accent',JSON.stringify(v)) }
+  const setTheme = (v)=>{ setThemeSt(v); localStorage.setItem('osx11_theme',JSON.stringify(v)) }
+  const setLang  = (v)=>{ setLangSt(v);  localStorage.setItem('osx11_lang',JSON.stringify(v)); document.documentElement.lang=v }
+  const setAccent= (v)=>{ setAccentSt(v);localStorage.setItem('osx11_accent',JSON.stringify(v)) }
 
   const t = useMemo(()=>makeT(lang),[lang])
 
@@ -206,7 +206,7 @@ export default function App(){
     r.setProperty('--live-soft',`color-mix(in oklab, ${c} 15%, transparent)`)
     r.setProperty('--live-line',`color-mix(in oklab, ${c} 50%, transparent)`)
   },[accent])
-  useEffect(()=>{ try{ localStorage.setItem('sharkctl_btnpos',JSON.stringify(state.btnPos)) }catch(_){} },[state.btnPos])
+  useEffect(()=>{ try{ localStorage.setItem('osx11_btnpos',JSON.stringify(state.btnPos)) }catch(_){} },[state.btnPos])
 
   // auto-apply — DPI muda instantaneamente; iluminação, remap e perf têm botão manual
   useEffect(()=>{
@@ -225,8 +225,8 @@ export default function App(){
         const rx=mainCfgToReact(newCfg)
         if(rx) appliedRef.current=rx
       }catch(e){
-        addLog({t:ts(),tag:'CFG',cls:'err',m:'Auto-apply: '+e.message})
-        showToast('Erro ao aplicar: '+e.message, true)
+        addLog({t:ts(),tag:'CFG',cls:'err',m:'Auto-apply failed: '+e.message})
+        showToast('Error: '+e.message, true)
       }
     },300)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -236,13 +236,13 @@ export default function App(){
   const reconnect = useCallback(async ()=>{
     if(!api||connecting) return
     setConnecting(true)
-    addLog({t:ts(),tag:'USB',cls:'info',m:'Procurando mouse...'})
+    addLog({t:ts(),tag:'USB',cls:'info',m:'Searching for mouse...'})
     try {
       const res = await api.connect()
       if(res.ok){
         setConnected(true); setConnMode(res.mode)
         set({conn:res.mode==='wireless'?'2.4ghz':'usb'})
-        addLog({t:ts(),tag:'USB',cls:'ok',m:`Conectado via ${res.mode}`})
+        addLog({t:ts(),tag:'USB',cls:'ok',m:`Connected via ${res.mode}`})
         const cfg = await api.getConfig()
         const rx = mainCfgToReact(cfg)
         if(rx){ setState(s=>({...s,...rx})); appliedRef.current=rx }
@@ -252,8 +252,8 @@ export default function App(){
         if(names) setState(s=>({...s, profiles: names.map(n=>({name:n,meta:''}))}))
 
       } else {
-        addLog({t:ts(),tag:'USB',cls:'warn',m:res.error||'Mouse não encontrado'})
-        showToast(res.error||'Mouse não encontrado', true)
+        addLog({t:ts(),tag:'USB',cls:'warn',m:res.error||'Mouse not found'})
+        showToast(res.error||'Mouse not found', true)
       }
     } catch(e){
       addLog({t:ts(),tag:'USB',cls:'err',m:e.message})
@@ -275,14 +275,14 @@ export default function App(){
       hwStageRef.current=true
       setState(s=>({...s, activeStage:stage}))
       if(appliedRef.current) appliedRef.current={...appliedRef.current, activeStage:stage}
-      addLog({t:ts(),tag:'DPI',cls:'info',m:`Estágio ${stage+1} ativo`})
+      addLog({t:ts(),tag:'DPI',cls:'info',m:`Stage ${stage+1} active`})
     })
     api.onDisconnected(()=>{
       setConnected(false); setConnMode(null)
       set({conn:'disconnected',batt:0})
       appliedRef.current=null
-      addLog({t:ts(),tag:'USB',cls:'err',m:'Mouse desconectado'})
-      showToast('Mouse desconectado',true)
+      addLog({t:ts(),tag:'USB',cls:'err',m:'Mouse disconnected'})
+      showToast('Mouse disconnected', true)
     })
 
     reconnect()
@@ -305,10 +305,10 @@ export default function App(){
       const newCfg = await api.applyConfig(patch)
       const rx = mainCfgToReact(newCfg)
       if(rx) appliedRef.current=rx
-      showToast('Iluminação aplicada ✓')
-      addLog({t:ts(),tag:'RGB',cls:'ok',m:'Iluminação enviada ao mouse'})
+      showToast('Lighting applied ✓')
+      addLog({t:ts(),tag:'RGB',cls:'ok',m:'Lighting sent to mouse'})
     } catch(e){
-      showToast('Erro: '+e.message, true)
+      showToast('Error: '+e.message, true)
       addLog({t:ts(),tag:'RGB',cls:'err',m:e.message})
     }
   }
@@ -320,10 +320,10 @@ export default function App(){
       const newCfg = await api.applyConfig(patch)
       const rx = mainCfgToReact(newCfg)
       if(rx) appliedRef.current=rx
-      showToast('Remap aplicado ✓')
-      addLog({t:ts(),tag:'BTN',cls:'ok',m:'Botões enviados ao mouse'})
+      showToast('Remap applied ✓')
+      addLog({t:ts(),tag:'BTN',cls:'ok',m:'Buttons sent to mouse'})
     } catch(e){
-      showToast('Erro: '+e.message, true)
+      showToast('Error: '+e.message, true)
       addLog({t:ts(),tag:'BTN',cls:'err',m:e.message})
     }
   }
@@ -335,10 +335,10 @@ export default function App(){
       const newCfg = await api.applyConfig(patch)
       const rx = mainCfgToReact(newCfg)
       if(rx) appliedRef.current=rx
-      showToast('Performance aplicada ✓')
+      showToast('Performance applied ✓')
       addLog({t:ts(),tag:'PERF',cls:'ok',m:`Polling ${state.polling}Hz · Debounce ${state.debounce}ms`})
     } catch(e){
-      showToast('Erro: '+e.message, true)
+      showToast('Error: '+e.message, true)
       addLog({t:ts(),tag:'PERF',cls:'err',m:e.message})
     }
   }
@@ -357,21 +357,21 @@ export default function App(){
       const patch = reactCfgToMain(state)
       await api.profilesSave(name.trim(), patch)
       await refreshProfiles()
-      showToast('Perfil "'+name.trim()+'" salvo ✓')
-      addLog({t:ts(),tag:'PRF',cls:'ok',m:'Perfil salvo: '+name.trim()})
-    }catch(e){ showToast('Erro: '+e.message, true) }
+      showToast('Profile "'+name.trim()+'" saved ✓')
+      addLog({t:ts(),tag:'PRF',cls:'ok',m:'Profile saved: '+name.trim()})
+    }catch(e){ showToast('Error: '+e.message, true) }
   }
 
   const profileLoad = async (name)=>{
     if(!api) return
     try{
       const cfg = await api.profilesLoad(name)
-      if(!cfg){ showToast('Perfil não encontrado', true); return }
+      if(!cfg){ showToast('Profile not found', true); return }
       const rx = mainCfgToReact(cfg)
       if(rx){ setState(s=>({...s,...rx})); appliedRef.current=rx }
-      showToast('Perfil "'+name+'" carregado ✓')
-      addLog({t:ts(),tag:'PRF',cls:'ok',m:'Perfil carregado: '+name})
-    }catch(e){ showToast('Erro: '+e.message, true) }
+      showToast('Profile "'+name+'" loaded ✓')
+      addLog({t:ts(),tag:'PRF',cls:'ok',m:'Profile loaded: '+name})
+    }catch(e){ showToast('Error: '+e.message, true) }
   }
 
   const profileDelete = async (name)=>{
@@ -379,9 +379,9 @@ export default function App(){
     try{
       await api.profilesDelete(name)
       await refreshProfiles()
-      showToast('Perfil "'+name+'" excluído')
-      addLog({t:ts(),tag:'PRF',cls:'warn',m:'Perfil excluído: '+name})
-    }catch(e){ showToast('Erro: '+e.message, true) }
+      showToast('Profile "'+name+'" deleted')
+      addLog({t:ts(),tag:'PRF',cls:'warn',m:'Profile deleted: '+name})
+    }catch(e){ showToast('Error: '+e.message, true) }
   }
 
   const ctx = {state, set, mouseProps, t, lang, tAct:(s)=>_tAct(s,lang),
@@ -415,7 +415,7 @@ export default function App(){
 <div className="titlebar">
         <div className="brand">
           <span className="glyph"><img src={appIconUrl} alt="X11 Control"/></span>
-          <span className="nm">SHARKCTL</span>
+          <span className="nm">OPENSHARKX11</span>
           <span className="sub">ATTACK SHARK · X11 · LINUX</span>
         </div>
         <div className="tb-spacer"></div>
@@ -459,7 +459,7 @@ export default function App(){
         <div className="main">
           <div className="sec">
             <span className="decal" style={{top:'14px',right:'30px'}}>✕ ✕ ╳ ┼ ▢ ◇</span>
-            <span className="decal" style={{bottom:'20px',left:'30px',writingMode:'vertical-rl'}}>X11 · SHARKCTL · ╳╳╳</span>
+            <span className="decal" style={{bottom:'20px',left:'30px',writingMode:'vertical-rl'}}>X11 · OSX11 · ╳╳╳</span>
             <div className="sec-head">
               <div className="ttl">
                 <h1>{t('sec.'+section+'.h')}</h1>
@@ -477,7 +477,7 @@ export default function App(){
           <span className={'conn-dot'+(connected?' ok':'')} style={{position:'static',width:'6px',height:'6px'}}></span>
           <b>{connected?connLabel+' '+t('sb.linked'):t('sb.disconnected')}</b>
         </div>
-        <div className="s path">~/.config/sharkctl/state.json</div>
+        <div className="s path">~/.config/opensharkx11/state.json</div>
         <div className="sb-sp"></div>
         {connected && <>
           <div className="s"><b>DPI</b> <span className="live-tx" style={{color:state.dpi[state.activeStage].color}}>{state.dpi[state.activeStage].dpi.toLocaleString()}</span></div>

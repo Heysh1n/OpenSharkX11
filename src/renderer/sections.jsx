@@ -53,9 +53,9 @@ export function ConsoleSection({ctx}){
             className="btn"
             style={{width:'100%',marginBottom:'10px'}}
             onClick={reconnect}
-            disabled={connecting||connected}
+            disabled={connecting}
           >
-            {connecting ? 'Buscando...' : connected ? 'Conectado' : 'Buscar mouse'}
+            {connecting ? t('con.searching') : connected ? t('con.reconnect') : t('con.findmouse')}
           </button>
           <RowToggle label={t('con.autorecon')} sub={t('con.autorecon.s')} on={state.autoReconnect} onClick={()=>ctx.set({autoReconnect:!state.autoReconnect})}/>
         </Panel>
@@ -199,7 +199,7 @@ export function LightingSection({ctx}){
           onClick={ctx.applyLighting}
           disabled={!ctx.connected}
         >
-          ▶ APLICAR ILUMINAÇÃO
+          ▶ {t('lt.apply')}
         </button>
       </div>
 
@@ -345,7 +345,7 @@ export function ButtonsSection({ctx}){
           <div style={{marginTop:'16px',borderTop:'1px solid var(--line)',paddingTop:'14px'}}>
             <button className="btn primary lt-apply-btn" style={{width:'100%'}}
               onClick={applyBindings} disabled={!connected}>
-              ▶ APLICAR REMAP
+              ▶ {t('bt.apply')}
             </button>
           </div>
         </Panel>
@@ -379,7 +379,7 @@ export function PerfSection({ctx}){
         <div style={{marginTop:'4px'}}>
           <button className="btn primary lt-apply-btn" style={{width:'100%'}}
             onClick={applyPerf} disabled={!connected}>
-            ▶ APLICAR PERFORMANCE
+            ▶ {t('pf.apply')}
           </button>
         </div>
       </div>
@@ -434,7 +434,7 @@ export function ProfilesSection({ctx}){
     <div className="fade-in two-col">
       <Panel label={t('pr.profiles')} idx="01" right={state.profiles.length+' '+t('pr.saved')}>
         {state.profiles.length===0 && (
-          <div className="muted" style={{fontSize:'11px',padding:'8px 0'}}>Nenhum perfil salvo ainda.</div>
+          <div className="muted" style={{fontSize:'11px',padding:'8px 0'}}>{t('pr.none')}</div>
         )}
         <div className="prof-list">
           {state.profiles.map((p,i)=>(
@@ -444,7 +444,7 @@ export function ProfilesSection({ctx}){
               <div className="pdot"></div>
               <div><div className="pn">{p.name}</div></div>
               <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                {loadingName===p.name && <span className="tiny" style={{color:'var(--live)'}}>carregando…</span>}
+                {loadingName===p.name && <span className="tiny" style={{color:'var(--live)'}}>{t('pr.loading')}</span>}
                 <button className="btn sm ghost danger" onClick={e=>doDelete(e, p.name)}>
                   <Ico n="trash"/>
                 </button>
@@ -458,13 +458,13 @@ export function ProfilesSection({ctx}){
             <div style={{display:'flex',gap:'8px'}}>
               <input
                 className="name-input"
-                placeholder="Nome do perfil…"
+                placeholder={t('pr.nameplaceh')}
                 value={newName}
                 autoFocus
                 onChange={e=>setNewName(e.target.value)}
                 onKeyDown={e=>{ if(e.key==='Enter') doSave(); if(e.key==='Escape'){ setSaving(false); setNewName('') }}}
               />
-              <button className="btn sm primary" onClick={doSave} disabled={!newName.trim()}>Salvar</button>
+              <button className="btn sm primary" onClick={doSave} disabled={!newName.trim()}>{t('pr.save')}</button>
               <button className="btn sm ghost" onClick={()=>{ setSaving(false); setNewName('') }}>✕</button>
             </div>
           ) : (
@@ -479,7 +479,7 @@ export function ProfilesSection({ctx}){
       <div className="col">
         <Panel label={t('pr.persist')} idx="02">
           <div className="tiny" style={{marginBottom:'8px'}}>{t('pr.statefile')}</div>
-          <div className="codebox">~/.config/sharkctl/profiles.json</div>
+          <div className="codebox">~/.config/opensharkx11/profiles.json</div>
           <div className="divider"></div>
           <div className="stack" style={{gap:'9px'}}>
             <div className="row"><span className="k">{t('pr.ondisk')}</span><span className="v">{state.profiles.length}</span></div>
@@ -538,7 +538,7 @@ export function SettingsSection({ctx}){
         <Panel label={t('st.about')} idx="04">
           <div className="stack" style={{gap:'9px'}}>
             <div className="row"><span className="k">{t('st.device')}</span><span className="v">Attack Shark X11</span></div>
-            <div className="row"><span className="k">SharkCtl</span><span className="v">v1.0.0</span></div>
+            <div className="row"><span className="k">OpenSharkX11</span><span className="v">v1.0.0</span></div>
           </div>
           <div className="divider"></div>
           <button className="btn ghost danger" onClick={reset}><Ico n="reset"/>{t('st.reset')}</button>

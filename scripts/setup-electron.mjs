@@ -16,7 +16,7 @@ if (!existsSync(electronPkgDir)) {
 
 // candidatos conhecidos de instalação do Electron via pacman no Arch/CachyOS
 const candidates = [
-  process.env.SHARKCTL_ELECTRON_DIR,
+  process.env.OSX11_ELECTRON_DIR,
   '/usr/lib/electron34',
   '/usr/lib/electron36',
   '/usr/lib/electron39',
@@ -32,7 +32,7 @@ for (const c of candidates) {
 if (!distDir) {
   console.warn('[setup-electron] Nenhuma instalação de Electron do sistema encontrada em:', candidates)
   console.warn('[setup-electron] Instale com: sudo pacman -S electron34')
-  console.warn('[setup-electron] Ou defina SHARKCTL_ELECTRON_DIR=/caminho/para/electronXX')
+  console.warn('[setup-electron] Ou defina OSX11_ELECTRON_DIR=/caminho/para/electronXX')
   process.exit(0) // não falha o install
 }
 
