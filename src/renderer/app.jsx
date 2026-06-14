@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import mouseLineSvg from './assets/mouse-line.svg?raw'
 import appIconUrl from './assets/app-icon.png'
-import { I, Ico, NAV, DPI_DEFAULT, MODES, BUTTONS, BOOT_LOG, SECTION_IDX } from './data.jsx'
+import { I, Ico, NAV, DPI_DEFAULT, MODES, BUTTONS, BOOT_LOG, SECTION_IDX, USB_LED_COLOR, USB_CHARGED_COLOR, DPI_MAX } from './data.jsx'
 import { makeT, tAct as _tAct, ACCENTS } from './i18n.jsx'
 import {
   ConsoleSection, DpiSection, LightingSection, ButtonsSection,
@@ -103,7 +103,7 @@ function mainCfgToReact(cfg) {
   const fallbackColors = DPI_DEFAULT.map(d=>d.color)
   return {
     dpi: (cfg.dpi?.values||[400,800,1600,3200,5000,22000]).map((v,i)=>({
-      dpi: v,
+      dpi: Math.min(v, DPI_MAX),
       color: cfg.lighting?.stageColors?.[i] ? rgbToHex(cfg.lighting.stageColors[i]) : fallbackColors[i],
       active: i===cfg.dpi?.activeStage,
     })),
@@ -289,14 +289,19 @@ export default function App(){
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[])
 
+  const usbConn    = state.conn==='usb'
+  const usbCharged = usbConn && state.batt >= 95
+  const usbColor   = usbCharged ? USB_CHARGED_COLOR : USB_LED_COLOR
+
   const glow = useMemo(()=>{
+    if(usbConn) return usbColor
     if(state.battOverride){ if(state.batt<15&&state.batt>0) return '#f43f6b'; if(state.batt<30&&state.batt>0) return '#f5a524' }
     if(state.mode==='staticdpi'||state.mode==='breathingdpi') return state.dpi[state.activeStage].color
-    if(state.mode==='neon'||state.mode==='colorbreathing') return '#ff0000' // base fixa pra hue-rotate ciclar arco-íris completo
+    if(state.mode==='neon'||state.mode==='colorbreathing') return '#ff0000'
     return state.color
-  },[state])
-  const lit = state.mode!=='off'
-  const mouseProps = {markup:mouseLineSvg, glow, mode:state.mode, speed:state.speed, lit}
+  },[state, usbConn, usbColor])
+  const lit = usbConn || state.mode!=='off'
+  const mouseProps = {markup:mouseLineSvg, glow, mode:usbConn?'static':state.mode, speed:state.speed, lit}
 
   const applyLighting = async ()=>{
     if(!api||!connected) return
@@ -387,7 +392,8 @@ export default function App(){
   const ctx = {state, set, mouseProps, t, lang, tAct:(s)=>_tAct(s,lang),
     theme, setTheme, setLang, accent, setAccent,
     connected, connecting, reconnect, applyLighting, applyBindings, applyPerf,
-    profileSave, profileLoad, profileDelete}
+    profileSave, profileLoad, profileDelete,
+    usbCharged, usbColor}
   const battColor = state.batt<15?'var(--danger)':state.batt<30?'var(--warn)':'var(--good)'
 
   const Section = {
@@ -449,10 +455,21 @@ export default function App(){
           <div className="rail-sp"></div>
           <div className="rail-foot">
             <div className="batt-mini">
-              <div className="pct" style={{color:connected?battColor:'var(--dim)'}}>{connected?state.batt+'%':'—'}</div>
-              {connected && <div className="batt-bar"><i style={{width:state.batt+'%',background:battColor}}></i></div>}
+              {state.conn==='usb' ? (
+                <>
+                  <div className="pct" style={{color:'var(--live)'}}>
+                    <span dangerouslySetInnerHTML={{__html:I.bolt}} style={{width:13,height:13,display:'inline-block'}}/>
+                  </div>
+                  <div className="batt-bar" style={{width:'100%'}}><i className="batt-charge-fill"></i></div>
+                </>
+              ) : (
+                <>
+                  <div className="pct" style={{color:connected?battColor:'var(--dim)'}}>{connected?state.batt+'%':'—'}</div>
+                  {connected && <div className="batt-bar"><i style={{width:state.batt+'%',background:battColor}}></i></div>}
+                </>
+              )}
             </div>
-            <div className="ver">v0.4.2</div>
+            <div className="ver">v{__APP_VERSION__}</div>
           </div>
         </div>
 
@@ -483,7 +500,10 @@ export default function App(){
           <div className="s"><b>DPI</b> <span className="live-tx" style={{color:state.dpi[state.activeStage].color}}>{state.dpi[state.activeStage].dpi.toLocaleString()}</span></div>
           <div className="s"><b>POLL</b> {state.polling}Hz</div>
           <div className="s"><b>{t('sb.light')}</b> {MODES.find(m=>m.id===state.mode)?.name||'—'}</div>
-          <div className="s"><b>BAT</b> <span style={{color:battColor}}>{state.batt}%</span></div>
+          <div className="s"><b>BAT</b> {state.conn==='usb'
+            ? <span style={{color:'var(--live)',display:'inline-flex',alignItems:'center',gap:'2px'}}><span dangerouslySetInnerHTML={{__html:I.bolt}} style={{width:11,height:11,display:'inline-block'}}/>CHG</span>
+            : <span style={{color:battColor}}>{state.batt}%</span>
+          }</div>
         </>}
       </div>
     </div>

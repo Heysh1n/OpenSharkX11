@@ -1,6 +1,6 @@
 /* ============ sections ============ */
 import React, { useState, useEffect, useRef } from 'react'
-import { Ico, I, MODES, SWATCHES, BUTTONS, NATIVE_ACTIONS, SHORTCUT_PRESETS, POLLING, DPI_MAX } from './data.jsx'
+import { Ico, I, MODES, SWATCHES, BUTTONS, NATIVE_ACTIONS, SHORTCUT_PRESETS, POLLING, DPI_MAX, USB_LED_COLOR, USB_CHARGED_COLOR } from './data.jsx'
 import { tModeDesc } from './i18n.jsx'
 import { MouseStage, MouseFrame } from './mouse.jsx'
 
@@ -34,9 +34,11 @@ function RowToggle({label,sub,on,onClick}){
 
 /* ===================== CONSOLE ===================== */
 export function ConsoleSection({ctx}){
-  const {state, mouseProps, t, connected, connecting, reconnect} = ctx
+  const {state, mouseProps, t, connected, connecting, reconnect, usbCharged, usbColor} = ctx
+  const usbConn = state.conn==='usb'
   const battColor = state.batt<15?'var(--danger)':state.batt<30?'var(--warn)':'var(--good)'
   const activeStage = state.dpi[state.activeStage]
+  const activeColor = usbConn ? (usbColor||USB_LED_COLOR) : activeStage.color
   return (
     <div className="cockpit fade-in">
       <div className="col">
@@ -60,9 +62,27 @@ export function ConsoleSection({ctx}){
           <RowToggle label={t('con.autorecon')} sub={t('con.autorecon.s')} on={state.autoReconnect} onClick={()=>ctx.set({autoReconnect:!state.autoReconnect})}/>
         </Panel>
         <Panel label={t('con.battery')} idx="02">
-          <div className="big-num" style={{color:battColor}}>{state.batt}<span className="unit">%</span></div>
-          <div className="batt-bar" style={{width:'100%',height:'8px',marginTop:'12px'}}><i style={{width:state.batt+'%',background:battColor}}></i></div>
-          {state.batt<30 && <div className="tiny" style={{marginTop:'10px',color:'var(--warn)'}}>⚠ {t('con.battoverride')}</div>}
+          {usbConn ? (
+            <>
+              <div style={{display:'flex',alignItems:'baseline',gap:'8px',marginBottom:'14px'}}>
+                <span style={{color:usbColor,display:'inline-flex',width:22,height:22,flexShrink:0,alignSelf:'center'}} dangerouslySetInnerHTML={{__html:usbCharged?I.batt:I.bolt}}/>
+                <div className="big-num" style={{color:usbColor,fontSize:'26px'}}>{usbCharged?t('con.charged'):t('con.charging')}</div>
+                <div className="tiny" style={{color:'var(--dim)'}}>USB-C</div>
+              </div>
+              <div className="batt-bar" style={{width:'100%',height:'6px'}}>
+                {usbCharged
+                  ? <i style={{display:'block',height:'100%',borderRadius:'3px',width:'100%',background:USB_CHARGED_COLOR}}></i>
+                  : <i className="batt-charge-fill"></i>
+                }
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="big-num" style={{color:battColor}}>{state.batt}<span className="unit">%</span></div>
+              <div className="batt-bar" style={{width:'100%',height:'8px',marginTop:'12px'}}><i style={{width:state.batt+'%',background:battColor}}></i></div>
+              {state.batt<30 && <div className="tiny" style={{marginTop:'10px',color:'var(--warn)'}}>⚠ {t('con.battoverride')}</div>}
+            </>
+          )}
         </Panel>
       </div>
 
@@ -71,7 +91,7 @@ export function ConsoleSection({ctx}){
           <MouseStage {...mouseProps}/>
         </MouseFrame>
         <div style={{display:'flex',gap:'10px'}}>
-          <div className="stat" style={{textAlign:'center',minWidth:'110px'}}><div className="sl">{t('con.activedpi')}</div><div className="sv" style={{justifyContent:'center',color:activeStage.color}}>{activeStage.dpi.toLocaleString()}</div></div>
+          <div className="stat" style={{textAlign:'center',minWidth:'110px'}}><div className="sl">{t('con.activedpi')}</div><div className="sv" style={{justifyContent:'center',color:activeColor}}>{activeStage.dpi.toLocaleString()}</div></div>
           <div className="stat" style={{textAlign:'center',minWidth:'110px'}}><div className="sl">POLLING</div><div className="sv" style={{justifyContent:'center'}}>{state.polling}<small>Hz</small></div></div>
         </div>
       </div>
@@ -103,10 +123,14 @@ export function ConsoleSection({ctx}){
 }
 
 /* ===================== DPI ===================== */
+const USB_LED = USB_LED_COLOR
+
 export function DpiSection({ctx}){
   const {state, t} = ctx
+  const usbConn = state.conn==='usb'
   const sel = state.activeStage
   const stage = state.dpi[sel]
+  const ledColor = usbConn ? USB_LED : stage.color
   const setDpi = (v)=>{ const d=[...state.dpi]; d[sel]={...d[sel],dpi:v}; ctx.set({dpi:d}) }
   return (
     <div className="cockpit fade-in">
@@ -114,7 +138,7 @@ export function DpiSection({ctx}){
         <Panel label={t('dpi.stages')} idx="01" right={t('dpi.slots')}>
           <div className="dpi-stages">
             {state.dpi.map((d,i)=>(
-              <div key={i} className={'dpi-stage'+(i===sel?' active':'')} style={{'--stage':d.color}} onClick={()=>ctx.set({activeStage:i})}>
+              <div key={i} className={'dpi-stage'+(i===sel?' active':'')} style={{'--stage': usbConn ? USB_LED : d.color}} onClick={()=>ctx.set({activeStage:i})}>
                 <div className="swatch"></div>
                 <div><div className="lvl">{t('dpi.stage')} {i+1}</div><div className="dpiv">{d.dpi.toLocaleString()}<span className="unit" style={{marginLeft:'4px'}}>DPI</span></div></div>
                 <div className="actag">{t('dpi.active')}</div>
@@ -126,9 +150,9 @@ export function DpiSection({ctx}){
 
       <div className="center-col">
         <MouseFrame caption={t('dpi.stage')+' '+(sel+1)+' · '+stage.dpi.toLocaleString()+' DPI'}>
-          <MouseStage {...ctx.mouseProps} glow={stage.color} mode="staticdpi" lit={true}/>
+          <MouseStage {...ctx.mouseProps} glow={ledColor} mode="staticdpi" lit={true}/>
         </MouseFrame>
-        <div className="big-num" style={{color:stage.color,fontSize:'46px'}}>{stage.dpi.toLocaleString()}<span className="unit" style={{fontSize:'13px',marginLeft:'8px'}}>DPI</span></div>
+        <div className="big-num" style={{color:ledColor,fontSize:'46px'}}>{stage.dpi.toLocaleString()}<span className="unit" style={{fontSize:'13px',marginLeft:'8px'}}>DPI</span></div>
       </div>
 
       <div className="col">
@@ -144,15 +168,18 @@ export function DpiSection({ctx}){
           <input type="range" min="50" max={DPI_MAX} step="50" value={stage.dpi} onChange={e=>setDpi(+e.target.value)}/>
           <div className="row" style={{marginTop:'6px'}}><span className="tiny">50</span><span className="tiny">{DPI_MAX.toLocaleString()}</span></div>
           <div className="divider"></div>
-          <div className="row" style={{marginBottom:'10px'}}>
-            <span className="k">{t('dpi.ledcolor')}</span>
-            <span className="swatch" style={{width:'16px',height:'16px',borderRadius:'5px',background:stage.color,boxShadow:'0 0 8px '+stage.color}}></span>
+          <div className={usbConn ? 'usb-dim' : ''}>
+            <div className="row" style={{marginBottom:'10px'}}>
+              <span className="k">{t('dpi.ledcolor')}</span>
+              <span className="swatch" style={{width:'16px',height:'16px',borderRadius:'5px',background:ledColor,boxShadow:'0 0 8px '+ledColor}}></span>
+            </div>
+            <div className="swatches">
+              {SWATCHES.map(c=>(
+                <button key={c} className={'sw'+(stage.color===c?' on':'')} style={{background:c}} onClick={()=>{const d=[...state.dpi];d[sel]={...d[sel],color:c};ctx.set({dpi:d});}}></button>
+              ))}
+            </div>
           </div>
-          <div className="swatches">
-            {SWATCHES.map(c=>(
-              <button key={c} className={'sw'+(stage.color===c?' on':'')} style={{background:c}} onClick={()=>{const d=[...state.dpi];d[sel]={...d[sel],color:c};ctx.set({dpi:d});}}></button>
-            ))}
-          </div>
+          {usbConn && <div className="usb-notice"><span dangerouslySetInnerHTML={{__html:I.bolt}} style={{width:12,height:12,display:'inline-block'}}/>{t('dpi.ledlock')}</div>}
         </Panel>
         <Panel label={t('dpi.motion')} idx="03">
           <RowToggle label="Angle snap" sub={t('dpi.anglesnap.s')} on={state.angleSnap} onClick={()=>ctx.set({angleSnap:!state.angleSnap})}/>
@@ -167,15 +194,16 @@ export function DpiSection({ctx}){
 /* ===================== LIGHTING ===================== */
 export function LightingSection({ctx}){
   const {state, t, lang} = ctx
+  const usbConn = state.conn==='usb'
   const needsColor = ['static','breathing'].includes(state.mode)
   const hasSpeed   = ['breathing','neon','colorbreathing','breathingdpi'].includes(state.mode)
   return (
     <div className="cockpit fade-in">
       <div className="col">
         <Panel label={t('lt.modes')} idx="01" right={t('lt.count')}>
-          <div className="modes">
+          <div className={`modes${usbConn?' usb-dim':''}`}>
             {MODES.map(m=>(
-              <button key={m.id} className={'mode-card'+(state.mode===m.id?' on':'')} onClick={()=>ctx.set({mode:m.id})}>
+              <button key={m.id} className={'mode-card'+(state.mode===m.id?' on':'')} onClick={()=>!usbConn&&ctx.set({mode:m.id})}>
                 <div className="mn"><span className="mdot"></span>{m.name}</div>
                 <div className="md">{tModeDesc(m.id,lang)}</div>
               </button>
@@ -188,43 +216,49 @@ export function LightingSection({ctx}){
       </div>
 
       <div className="center-col">
-        <MouseFrame caption={MODES.find(m=>m.id===state.mode).name.toUpperCase()+' · '+t('lt.preview')}>
-          <MouseStage {...ctx.mouseProps}/>
+        <MouseFrame caption={usbConn ? 'STATIC · USB' : MODES.find(m=>m.id===state.mode).name.toUpperCase()+' · '+t('lt.preview')}>
+          <MouseStage {...ctx.mouseProps} glow={usbConn ? USB_LED : ctx.mouseProps.glow} mode={usbConn ? 'static' : ctx.mouseProps.mode}/>
         </MouseFrame>
         <div className="muted" style={{fontSize:'10px',letterSpacing:'.08em',textAlign:'center',maxWidth:'280px',lineHeight:1.5}}>
-          {t('lt.note')}
+          {usbConn ? '' : t('lt.note')}
         </div>
-        <button
-          className="btn primary lt-apply-btn"
-          onClick={ctx.applyLighting}
-          disabled={!ctx.connected}
-        >
-          ▶ {t('lt.apply')}
-        </button>
+        {usbConn
+          ? <div className="usb-notice" style={{justifyContent:'center',gap:'8px'}}>
+              <span dangerouslySetInnerHTML={{__html:I.bolt}} style={{width:14,height:14,display:'inline-block'}}/>
+              {t('lt.usblock')}
+            </div>
+          : <button className="btn primary lt-apply-btn" onClick={ctx.applyLighting} disabled={!ctx.connected}>
+              ▶ {t('lt.apply')}
+            </button>
+        }
       </div>
 
       <div className="col">
         {needsColor && (
           <Panel label={t('lt.global')} idx="02">
-            <div className="swatches">
-              {SWATCHES.map(c=>(
-                <button key={c} className={'sw'+(state.color===c?' on':'')} style={{background:c}} onClick={()=>ctx.set({color:c})}></button>
-              ))}
-            </div>
-            <div className="row" style={{marginTop:'14px'}}>
-              <span className="k">{t('lt.picker')}</span>
-              <label className="btn sm" style={{cursor:'pointer'}}>
-                <span style={{width:'13px',height:'13px',borderRadius:'4px',background:state.color,display:'inline-block'}}></span>{state.color.toUpperCase()}
-                <input type="color" value={state.color} onChange={e=>ctx.set({color:e.target.value})} style={{width:0,height:0,opacity:0,position:'absolute'}}/>
-              </label>
+            <div className={usbConn ? 'usb-dim' : ''}>
+              <div className="swatches">
+                {SWATCHES.map(c=>(
+                  <button key={c} className={'sw'+(state.color===c?' on':'')} style={{background:c}} onClick={()=>ctx.set({color:c})}></button>
+                ))}
+              </div>
+              <div className="row" style={{marginTop:'14px'}}>
+                <span className="k">{t('lt.picker')}</span>
+                <label className="btn sm" style={{cursor:'pointer'}}>
+                  <span style={{width:'13px',height:'13px',borderRadius:'4px',background:state.color,display:'inline-block'}}></span>{state.color.toUpperCase()}
+                  <input type="color" value={state.color} onChange={e=>ctx.set({color:e.target.value})} style={{width:0,height:0,opacity:0,position:'absolute'}}/>
+                </label>
+              </div>
             </div>
           </Panel>
         )}
         {hasSpeed && (
           <Panel label={t('lt.effect')} idx="03">
-            <div className="row" style={{marginBottom:'10px'}}><span className="k">{t('lt.speed')}</span><span className="v">{state.speed}×</span></div>
-            <input type="range" min="1" max="10" step="1" value={state.speed} onChange={e=>ctx.set({speed:+e.target.value})}/>
-            <div className="row" style={{marginTop:'6px'}}><span className="tiny">{t('lt.slow')}</span><span className="tiny">{t('lt.fast')}</span></div>
+            <div className={usbConn ? 'usb-dim' : ''}>
+              <div className="row" style={{marginBottom:'10px'}}><span className="k">{t('lt.speed')}</span><span className="v">{state.speed}×</span></div>
+              <input type="range" min="1" max="10" step="1" value={state.speed} onChange={e=>ctx.set({speed:+e.target.value})}/>
+              <div className="row" style={{marginTop:'6px'}}><span className="tiny">{t('lt.slow')}</span><span className="tiny">{t('lt.fast')}</span></div>
+            </div>
           </Panel>
         )}
       </div>
@@ -538,7 +572,7 @@ export function SettingsSection({ctx}){
         <Panel label={t('st.about')} idx="04">
           <div className="stack" style={{gap:'9px'}}>
             <div className="row"><span className="k">{t('st.device')}</span><span className="v">Attack Shark X11</span></div>
-            <div className="row"><span className="k">OpenSharkX11</span><span className="v">v1.0.0</span></div>
+            <div className="row"><span className="k">OpenSharkX11</span><span className="v">v{__APP_VERSION__}</span></div>
           </div>
           <div className="divider"></div>
           <button className="btn ghost danger" onClick={reset}><Ico n="reset"/>{t('st.reset')}</button>

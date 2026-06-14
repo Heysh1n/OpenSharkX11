@@ -43,7 +43,9 @@ export const DPI_DEFAULT = [
   {dpi:6400, color:'#ff0000'},
   {dpi:12000,color:'#ff00ff'},
 ]
-export const DPI_MAX = 26000
+export const DPI_MAX = 22000
+export const USB_LED_COLOR     = '#c800ff'
+export const USB_CHARGED_COLOR = '#00e676'
 
 export const POLLING = [125,250,500,1000]
 
@@ -85,7 +87,7 @@ export const SHORTCUT_PRESETS = [
 ]
 
 export const BOOT_LOG = [
-  {tag:'sys', cls:'sys', t:'00:00.00', m:'opensharkx11 v1.0.0 · electron 34 · linux x86_64'},
+  {tag:'sys', cls:'sys', t:'00:00.00', m:`opensharkx11 v${__APP_VERSION__} · electron 34 · linux x86_64`},
   {tag:'usb', cls:'inf', t:'00:00.01', m:'waiting for mouse connection…'},
 ]
 

@@ -98,6 +98,10 @@ body{
 .batt-mini .pct{font-size:11px;font-weight:600}
 .batt-bar{width:46px;height:5px;border-radius:3px;background:var(--bg-hi);overflow:hidden}
 .batt-bar i{display:block;height:100%;background:var(--good);border-radius:3px;transition:width .5s var(--ease)}
+@keyframes batt-charge{0%{width:0%;opacity:1}70%{width:100%;opacity:1}85%{width:100%;opacity:.15}100%{width:0%;opacity:0}}
+.batt-charge-fill{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--live),color-mix(in oklab,var(--live) 55%,white));animation:batt-charge 2.6s cubic-bezier(.4,0,.2,1) infinite}
+.usb-notice{font-size:10.5px;letter-spacing:.07em;color:var(--live);margin-top:10px;display:flex;align-items:center;gap:6px;opacity:.9}
+.usb-dim{opacity:.3;pointer-events:none;user-select:none}
 .ver{font-size:8px;color:var(--faint);letter-spacing:.1em}
 
 /* ---------- main ---------- */
