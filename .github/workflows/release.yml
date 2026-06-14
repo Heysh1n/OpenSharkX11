@@ -49,4 +49,4 @@ jobs:
           files: |
             dist/*.AppImage
             dist/*.deb
-          generate_release_notes: true
+          body_path: RELEASE.md
