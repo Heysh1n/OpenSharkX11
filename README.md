@@ -1,7 +1,7 @@
 <div align="center">
   <img src="assets/icon.png" width="108" alt="SharkCtl">
   <h1>SharkCtl</h1>
-  <p>Configurador nativo do <strong>Attack Shark X11</strong> para Linux</p>
+  <p>Native Linux configurator for the <strong>Attack Shark X11</strong> mouse</p>
 
   <p>
     <img src="https://img.shields.io/badge/platform-linux-informational?style=flat-square&logo=linux&logoColor=white">
@@ -13,75 +13,75 @@
 
 ---
 
-App de desktop (Electron 34 + React 19) para configurar o mouse **Attack Shark X11** no Linux — sem software Windows. Funciona tanto via **dongle 2.4 GHz** quanto **cabo USB**.
+Desktop app (Electron 34 + React 19) to configure the **Attack Shark X11** on Linux — no Windows software needed. Works via **2.4 GHz dongle** and **wired USB**.
 
-A interface tem estilo *cockpit*: janela sem barra de título, sidebar com diagrama clicável do mouse e cor de acento que sincroniza com o RGB configurado.
+Cockpit-style interface: frameless window, sidebar with a clickable mouse diagram, and accent color that syncs with the configured RGB.
 
 ---
 
-## Funcionalidades
+## Features
 
-| Seção | O que você configura |
+| Section | What you can configure |
 |---|---|
-| **DPI** | 6 estágios independentes · até 26 000 DPI · cor por estágio · Angle Snap · Ripple Control |
-| **Iluminação** | 7 modos (Off, Static, Breathing, Neon, ColorBreathing, StaticDPI, BreathingDPI) · velocidade · cor global |
-| **Botões** | Remap dos 8 botões: ações nativas do mouse, atalhos de teclado personalizados |
-| **Performance** | Taxa de polling (125 / 250 / 500 / 1000 Hz) · debounce (4–50 ms) |
-| **Perfis** | Salvar, carregar e deletar perfis de configuração |
-| **Bateria** | Monitor em tempo real · override automático do LED em nível crítico |
-| **Console** | Log ao vivo de conexão USB, comandos enviados e erros |
+| **DPI** | 6 independent stages · up to 26,000 DPI · color per stage · Angle Snap · Ripple Control |
+| **Lighting** | 7 modes (Off, Static, Breathing, Neon, ColorBreathing, StaticDPI, BreathingDPI) · speed · global color |
+| **Buttons** | Remap all 8 buttons: native mouse actions, custom keyboard shortcuts |
+| **Performance** | Polling rate (125 / 250 / 500 / 1000 Hz) · debounce (4–50 ms) |
+| **Profiles** | Save, load, and delete configuration profiles |
+| **Battery** | Real-time monitor · automatic LED override at critical level |
+| **Console** | Live log of USB connection, sent commands, and errors |
 
 ---
 
-## Pré-requisitos
+## Requirements
 
 - **Arch / CachyOS**: `sudo pacman -S electron34 libusb nodejs npm`
-- Qualquer distro com **Electron 34** instalado no sistema e **libusb**
+- Any distro with **Electron 34** installed system-wide and **libusb**
 
 ---
 
-## Instalação
+## Installation
 
-### Arch / CachyOS — via AUR (recomendado)
+### Arch / CachyOS — AUR (recommended)
 
-Instala com ícone no menu, atalho `.desktop`, regra udev e binário em `/usr/bin/sharkctl`.
+Installs with app menu icon, `.desktop` shortcut, udev rule, and binary at `/usr/bin/sharkctl`.
 
-**Com yay / paru:**
+**With yay / paru:**
 ```bash
 yay -S sharkctl-git
-# ou
+# or
 paru -S sharkctl-git
 ```
 
-**Manual (build local do repositório clonado):**
+**Manual build from the cloned repository:**
 ```bash
 cd aur
 makepkg -si
 ```
 
-Para atualizar:
+To update:
 ```bash
 cd aur && makepkg -si
 ```
 
-Para remover:
+To remove:
 ```bash
 sudo pacman -R sharkctl
 ```
 
 ---
 
-### AppImage — qualquer distro Linux
+### AppImage — any Linux distro
 
 ```bash
-# 1. baixe SharkCtl-1.0.0.AppImage da página de releases
+# 1. Download SharkCtl-1.0.0.AppImage from the releases page
 chmod +x SharkCtl-1.0.0.AppImage
 
-# 2. instale a regra udev (acesso USB sem root)
+# 2. Install the udev rule (USB access without root)
 sudo cp aur/99-attack-shark-x11.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
 
-# 3. execute
+# 3. Run
 ./SharkCtl-1.0.0.AppImage
 ```
 
@@ -90,85 +90,87 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 ### .deb — Ubuntu / Debian
 
 ```bash
-# 1. baixe sharkctl-1.0.0.deb da página de releases
+# Download sharkctl-1.0.0.deb from the releases page
 sudo dpkg -i sharkctl-1.0.0.deb
-# a regra udev é instalada automaticamente
+# udev rule is installed automatically
 ```
 
 ---
 
-### Desenvolvimento — hot reload
+### Development — hot reload
 
 ```bash
-npm install      # configura o Electron do sistema via postinstall (uma vez só)
+npm install      # sets up system Electron via postinstall (once)
 npm run dev
 ```
 
 ---
 
-## Gerar pacotes de distribuição
+## Build distribution packages
 
-> **Requer Arch / CachyOS** com `electron34` instalado em `/usr/lib/electron34`.
+> **Requires Arch / CachyOS** with `electron34` installed at `/usr/lib/electron34`.
 
 ```bash
 npm run dist
-# gera dist/SharkCtl-1.0.0.AppImage e dist/sharkctl-1.0.0.deb
+# outputs dist/SharkCtl-1.0.0.AppImage and dist/sharkctl-1.0.0.deb
 ```
 
 ---
 
-## Comandos
+## Commands
 
 ```bash
-npm run dev              # desenvolvimento com hot reload
-npm run build            # build de produção (sem empacotar)
-npm run dist             # build + gera AppImage e .deb em dist/
-npm run test-usb         # verifica se o módulo usb enxerga o mouse
-npm run diag-rgb-safe    # diagnóstico de iluminação (variação segura do payload DPI)
+npm run dev              # development with hot reload
+npm run build            # production build (no packaging)
+npm run dist             # build + generate AppImage and .deb in dist/
+npm run test-usb         # check if the usb module can see the mouse
+npm run diag-rgb-safe    # lighting diagnostics (safe payload variant)
 ```
 
 ---
 
-## Estrutura do projeto
+## Project structure
 
 ```
 src/
-├── main/                  — processo principal (IPC, fila USB, persistência JSON)
-│   └── driver/            — driver USB (fork de HarukaYamamoto0)
-│       └── protocols/     — builders de payload (DPI, Macro, Polling, Lighting)
-├── preload/               — bridge contextBridge → window.api
-└── renderer/              — UI React 19
-    ├── app.jsx            — componente raiz e estado global
-    ├── sections.jsx       — seções de cada aba da interface
-    ├── data.jsx           — constantes, ícones SVG e dados do mouse
-    ├── i18n.jsx           — traduções e temas de cor de acento
-    └── style.css          — design system cockpit
+├── main/                  — main process (IPC, USB queue, JSON persistence)
+│   └── driver/            — USB driver (fork of HarukaYamamoto0)
+│       └── protocols/     — payload builders (DPI, Macro, Polling, Lighting)
+├── preload/               — contextBridge → window.api
+└── renderer/              — React 19 UI
+    ├── app.jsx            — root component and global state
+    ├── sections.jsx       — tab sections
+    ├── data.jsx           — constants, SVG icons, mouse data
+    ├── i18n.jsx           — translations and accent color themes
+    └── style.css          — cockpit design system
 
-assets/                    — ícones (SVG + PNG) e sharkctl.desktop
-aur/                       — PKGBUILD para Arch / CachyOS
-docs/protocol/             — engenharia reversa do protocolo USB HID
-scripts/                   — diagnóstico de iluminação e setup do Electron
+assets/                    — icons (SVG + PNG) and sharkctl.desktop
+aur/                       — PKGBUILD for Arch / CachyOS
+docs/protocol/             — USB HID reverse engineering
+scripts/                   — lighting diagnostics and Electron setup
 ```
 
 ---
 
-## Protocolo USB
+## USB Protocol
 
-O protocolo reverso do X11 está documentado em [`docs/protocol/PROTOCOL.md`](docs/protocol/PROTOCOL.md):
+The X11 protocol is documented in [`docs/protocol/PROTOCOL_EN.md`](docs/protocol/PROTOCOL_EN.md):
 
-- Payloads funcionais confirmados (report `0x04` para DPI, `0x05` para preferências)
-- Report IDs **perigosos** — `0x0b` causa despareamento do dongle 2.4 GHz
-- Histórico da investigação de iluminação RGB e próximos passos
+- Confirmed working payloads (report `0x04` for DPI, `0x05` for preferences)
+- **Dangerous** Report IDs — `0x0b` causes 2.4 GHz dongle unpairing
+- RGB lighting investigation history and findings
 
----
-
-## Créditos
-
-- Driver USB base: [HarukaYamamoto0/attack-shark-x11-driver](https://github.com/HarukaYamamoto0/attack-shark-x11-driver) (MIT)
-- Correções de protocolo de iluminação: [dressedinblack5/attack-shark-x11-electron](https://github.com/dressedinblack5/attack-shark-x11-electron) (MIT)
+Also available in: [Português](docs/protocol/PROTOCOL.md) · [中文](docs/protocol/PROTOCOL_ZH.md)
 
 ---
 
-## Licença
+## Credits
+
+- USB driver base: [HarukaYamamoto0/attack-shark-x11-driver](https://github.com/HarukaYamamoto0/attack-shark-x11-driver) (MIT)
+- Protocol fixes: [dressedinblack5/attack-shark-x11-electron](https://github.com/dressedinblack5/attack-shark-x11-electron) (MIT)
+
+---
+
+## License
 
 [MIT](LICENSE) © Clevs
