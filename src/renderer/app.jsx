@@ -285,6 +285,8 @@ export default function App(){
       showToast('Mouse disconnected', true)
     })
 
+    api.onTraySearch(()=>{ reconnect() })
+
     reconnect()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[])

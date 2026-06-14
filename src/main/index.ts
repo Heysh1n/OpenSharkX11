@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, nativeTheme, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs'
@@ -32,6 +32,9 @@ const SAFE_DELAY = 300
 let driver: AttackSharkX11 | null = null
 let queue: Promise<unknown> = Promise.resolve()
 let mainWin: BrowserWindow | null = null
+let tray: Tray | null = null
+let appIsQuitting = false
+let currentConnMode: 'wireless' | 'wired' | null = null
 
 function run<T>(fn: () => Promise<T>): Promise<T> {
   const t = queue.then(fn)
@@ -191,6 +194,126 @@ async function applyAll(d: AttackSharkX11, cfg: AppState) {
   }
 }
 
+// ─── system tray ─────────────────────────────────────────────────────────────
+function trayIconPath(): string {
+  return is.dev
+    ? join(__dirname, '../../assets/icons/24x24.png')
+    : join(process.resourcesPath, 'assets', 'icons', '24x24.png')
+}
+
+// BGRA byte triplets for battery bar colors
+const BAR_COLORS = {
+  usb:     [0xff, 0x00, 0xc8] as const, // #c800ff magenta
+  charged: [0x76, 0xe6, 0x00] as const, // #00e676 green
+  high:    [0x76, 0xe6, 0x00] as const, // #00e676 green  >= 50%
+  mid:     [0x00, 0x98, 0xff] as const, // #ff9800 orange >= 15%
+  low:     [0x6b, 0x3f, 0xf4] as const, // #f43f6b red    < 15%
+}
+
+function makeTrayIcon(connected: boolean, battery = -1, usbMode = false): Electron.NativeImage {
+  const img = nativeImage.createFromPath(trayIconPath())
+  const resized = img.resize({ width: 22, height: 22 })
+  const size = resized.getSize()
+  const W = size.width, H = size.height
+  const buf = Buffer.from(resized.toBitmap()) // raw BGRA on all platforms
+
+  if (!connected) {
+    for (let i = 0; i < buf.length; i += 4) {
+      const gray = Math.round(0.299 * buf[i + 2] + 0.587 * buf[i + 1] + 0.114 * buf[i])
+      buf[i] = gray; buf[i + 1] = gray; buf[i + 2] = gray
+    }
+    return nativeImage.createFromBitmap(buf, size)
+  }
+
+  // battery bar: 1px separator + 3px fill at bottom
+  const BAR_H = 3
+  const SEP_ROW = H - BAR_H - 1
+  const usbCharged = usbMode && battery >= 95
+
+  let barColor: readonly [number, number, number]
+  let fillW: number
+  if (usbMode) {
+    barColor = usbCharged ? BAR_COLORS.charged : BAR_COLORS.usb
+    fillW = W // always full width when USB (charging/charged)
+  } else if (battery < 0) {
+    return nativeImage.createFromBitmap(buf, size) // no battery info yet
+  } else {
+    barColor = battery >= 50 ? BAR_COLORS.high : battery >= 15 ? BAR_COLORS.mid : BAR_COLORS.low
+    fillW = Math.max(1, Math.round(W * battery / 100))
+  }
+
+  for (let row = SEP_ROW; row < H; row++) {
+    for (let col = 0; col < W; col++) {
+      const idx = (row * W + col) * 4
+      if (row === SEP_ROW) {
+        // separator: darken existing pixel
+        buf[idx] = Math.round(buf[idx] * 0.3)
+        buf[idx + 1] = Math.round(buf[idx + 1] * 0.3)
+        buf[idx + 2] = Math.round(buf[idx + 2] * 0.3)
+      } else if (col < fillW) {
+        buf[idx] = barColor[0]; buf[idx + 1] = barColor[1]; buf[idx + 2] = barColor[2]; buf[idx + 3] = 255
+      } else {
+        // unfilled portion: dim background
+        buf[idx] = 25; buf[idx + 1] = 25; buf[idx + 2] = 25; buf[idx + 3] = 200
+      }
+    }
+  }
+
+  return nativeImage.createFromBitmap(buf, size)
+}
+
+function buildTrayMenu(connected: boolean) {
+  return Menu.buildFromTemplate([
+    {
+      label: 'Show OpenSharkX11',
+      click: () => { mainWin?.show(); mainWin?.focus() },
+    },
+    { type: 'separator' },
+    {
+      label: 'Search mouse',
+      enabled: !connected,
+      click: () => {
+        mainWin?.show()
+        mainWin?.focus()
+        mainWin?.webContents.send('tray:search')
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => { appIsQuitting = true; app.quit() },
+    },
+  ])
+}
+
+function updateTray(connected: boolean, battery: number, usbMode: boolean) {
+  if (!tray) return
+  tray.setImage(makeTrayIcon(connected, battery, usbMode))
+  tray.setContextMenu(buildTrayMenu(connected))
+
+  let tooltip = 'OpenSharkX11'
+  if (!connected) tooltip += ' · Disconnected'
+  else if (usbMode) tooltip += ' · USB · Charging'
+  else tooltip += battery >= 0 ? ` · ${battery}%` : ' · Connected'
+  tray.setToolTip(tooltip)
+
+  // título ao lado do ícone (visível em KDE / AppIndicator)
+  tray.setTitle(connected && !usbMode && battery >= 0 ? ` ${battery}%` : '')
+}
+
+function createTray() {
+  tray = new Tray(makeTrayIcon(false))
+  updateTray(false, -1, false)
+  tray.on('click', () => {
+    if (mainWin?.isVisible() && mainWin?.isFocused()) {
+      mainWin.hide()
+    } else {
+      mainWin?.show()
+      mainWin?.focus()
+    }
+  })
+}
+
 // ─── janela ───────────────────────────────────────────────────────────────────
 function createWindow(): void {
   nativeTheme.themeSource = 'dark'
@@ -215,6 +338,12 @@ function createWindow(): void {
 
   mainWin.on('ready-to-show', () => mainWin!.show())
 
+  mainWin.on('close', (e) => {
+    if (!appIsQuitting) { e.preventDefault(); mainWin?.hide() }
+  })
+
+  mainWin.on('minimize', () => { mainWin?.hide() })
+
   mainWin.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
@@ -232,6 +361,7 @@ app.whenReady().then(() => {
   electronApp.setAppUserModelId('dev.clevs.opensharkx11')
   app.on('browser-window-created', (_, w) => optimizer.watchWindowShortcuts(w))
   createWindow()
+  createTray()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -275,6 +405,7 @@ app.whenReady().then(() => {
           const prevOverride = batteryOverrideForLevel(mouseBattery)
           mouseBattery = bat
           mainWin?.webContents.send('mouse:battery', bat)
+          updateTray(true, bat, currentConnMode === 'wired')
           if (JSON.stringify(batteryOverrideForLevel(bat)) !== JSON.stringify(prevOverride)) {
             run(() => applyLightingOnly(driver!, state))
           }
@@ -293,9 +424,11 @@ app.whenReady().then(() => {
           console.warn('[usb] driver error — mouse desconectado:', err.message)
           if (batteryPollTimer) { clearInterval(batteryPollTimer); batteryPollTimer = null }
           mouseBattery = -1
+          currentConnMode = null
           try { driver?.close() } catch {}
           driver = null
           mainWin?.webContents.send('mouse:disconnected')
+          updateTray(false, -1, false)
         })
 
         // Leitura inicial + poll a cada 5 min (batteryChange pode não disparar sozinho)
@@ -311,7 +444,9 @@ app.whenReady().then(() => {
         batteryPollTimer = setInterval(pollBattery, 5 * 60_000)
 
         const modeName = mode === ConnectionMode.Adapter ? 'wireless' : 'wired'
+        currentConnMode = modeName
         console.log(`[connect] conectado via ${modeName}`)
+        updateTray(true, mouseBattery, modeName === 'wired')
 
         // Aplicar configuração salva automaticamente ao conectar
         run(() => applyAll(d, state)).catch(e => console.warn('[connect] applyAll falhou:', e.message))
@@ -329,8 +464,10 @@ app.whenReady().then(() => {
   ipcMain.handle('device:disconnect', async () => {
     if (batteryPollTimer) { clearInterval(batteryPollTimer); batteryPollTimer = null }
     mouseBattery = -1
+    currentConnMode = null
     try { await driver?.close() } catch {}
     driver = null
+    updateTray(false, -1, false)
     return { ok: true }
   })
 
@@ -398,6 +535,8 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', async () => {
+  appIsQuitting = true
+  tray?.destroy(); tray = null
   if (batteryPollTimer) { clearInterval(batteryPollTimer); batteryPollTimer = null }
   if (driver) { try { await driver.close() } catch {} finally { driver = null } }
 })

@@ -19,6 +19,9 @@ const api = {
   onDisconnected: (cb: () => void) => {
     ipcRenderer.on('mouse:disconnected', () => cb())
   },
+  onTraySearch: (cb: () => void) => {
+    ipcRenderer.on('tray:search', () => cb())
+  },
 
   // config
   getConfig: () => ipcRenderer.invoke('config:get'),
