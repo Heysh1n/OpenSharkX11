@@ -1,7 +1,7 @@
 {
   "name": "opensharkx11",
   "version": "1.0.0",
-  "description": "Attack Shark X11 \u2014 native Linux configurator",
+  "description": "Attack Shark X11 — native Linux configurator",
   "main": "out/main/index.js",
   "author": "Clevs",
   "license": "MIT",
@@ -64,7 +64,9 @@
     },
     "deb": {
       "maintainer": "Clevs",
-      "depends": ["libusb-1.0-0"],
+      "depends": [
+        "libusb-1.0-0"
+      ],
       "afterInstall": "scripts/postinstall-deb.sh",
       "afterRemove": "scripts/postremove-deb.sh"
     },
@@ -86,6 +88,7 @@
     "@fontsource/inter": "^5.2.5",
     "@fontsource/jetbrains-mono": "^5.2.5",
     "@vitejs/plugin-react": "^6.0.2",
+    "dbus-next": "^0.10.2",
     "pino": "10.3.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

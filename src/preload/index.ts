@@ -7,7 +7,7 @@ const api = {
   close: () => ipcRenderer.send('win:close'),
 
   // dispositivo
-  connect: (mode?: string): Promise<{ok:boolean,mode?:string,error?:string}> => ipcRenderer.invoke('device:connect', mode),
+  connect: (mode?: 'wireless' | 'wired' | 'bluetooth'): Promise<{ok:boolean,mode?:string,error?:string}> => ipcRenderer.invoke('device:connect', mode),
   disconnect: () => ipcRenderer.invoke('device:disconnect'),
   battery: (): Promise<number|null> => ipcRenderer.invoke('device:battery'),
 

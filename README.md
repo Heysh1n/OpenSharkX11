@@ -13,7 +13,7 @@
 
 ---
 
-Desktop app (Electron 34 + React 19) to configure the **Attack Shark X11** on Linux — no Windows software needed. Works via **2.4 GHz dongle** and **wired USB**.
+Desktop app (Electron 34 + React 19) to configure the **Attack Shark X11** on Linux — no Windows software needed. Works via **2.4 GHz dongle**, **wired USB-C**, and **Bluetooth 5.0 (BLE)**.
 
 Cockpit-style interface: frameless window, sidebar with a clickable mouse diagram, and accent color that syncs with the configured RGB.
 
@@ -26,17 +26,21 @@ Cockpit-style interface: frameless window, sidebar with a clickable mouse diagra
 | **DPI** | 6 independent stages · up to 26,000 DPI · color per stage · Angle Snap · Ripple Control |
 | **Lighting** | 7 modes (Off, Static, Breathing, Neon, ColorBreathing, StaticDPI, BreathingDPI) · speed · global color |
 | **Buttons** | Remap all 8 buttons: native mouse actions, custom keyboard shortcuts |
-| **Performance** | Polling rate (125 / 250 / 500 / 1000 Hz) · debounce (4–50 ms) |
+| **Performance** | Polling rate (125 / 250 / 500 / 1000 Hz) · debounce (4–50 ms) · 250–1000 Hz disabled in USB-C mode (max 125 Hz) |
 | **Profiles** | Save, load, and delete configuration profiles |
 | **Battery** | Real-time monitor · automatic LED override at critical level |
-| **Console** | Live log of USB connection, sent commands, and errors |
+| **Console** | Live log of connection, sent commands, and errors · auto-detects 2.4 GHz, USB-C, and Bluetooth |
+
+> **Tri-mode support**: the "Search mouse" button automatically tries 2.4 GHz dongle → USB-C cable → Bluetooth BLE in sequence. A dedicated BT button is also available when disconnected.
 
 ---
 
 ## Requirements
 
-- **Arch / CachyOS**: `sudo pacman -S electron34 libusb nodejs npm`
-- Any distro with **Electron 34** installed system-wide and **libusb**
+- **Arch / CachyOS**: `sudo pacman -S electron34 libusb bluez bluez-utils nodejs npm`
+- Any distro with **Electron 34** installed system-wide, **libusb**, and **BlueZ** (for BLE support)
+- BLE requires the mouse to be paired before launching the app (`bluetoothctl pair <MAC>`)
+- USB access requires the udev rule (see Installation)
 
 ---
 
@@ -124,7 +128,6 @@ npm run dev              # development with hot reload
 npm run build            # production build (no packaging)
 npm run dist             # build + generate AppImage and .deb in dist/
 npm run test-usb         # check if the usb module can see the mouse
-npm run diag-rgb-safe    # lighting diagnostics (safe payload variant)
 ```
 
 ---
@@ -152,13 +155,14 @@ scripts/                   — lighting diagnostics and Electron setup
 
 ---
 
-## USB Protocol
+## Protocol Documentation
 
-The X11 protocol is documented in [`docs/protocol/PROTOCOL_EN.md`](docs/protocol/PROTOCOL_EN.md):
+Full reverse-engineering notes in [`docs/protocol/PROTOCOL_EN.md`](docs/protocol/PROTOCOL_EN.md):
 
 - Confirmed working payloads (report `0x04` for DPI, `0x05` for preferences)
 - **Dangerous** Report IDs — `0x0b` causes 2.4 GHz dongle unpairing
 - RGB lighting investigation history and findings
+- **Bluetooth BLE** — GATT service map, fee3/fee4 protocol, confirmed limitations
 
 Also available in: [Português](docs/protocol/PROTOCOL.md) · [中文](docs/protocol/PROTOCOL_ZH.md)
 

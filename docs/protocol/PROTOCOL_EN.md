@@ -18,6 +18,7 @@ Covers everything confirmed working, what is dangerous, and how to use each comm
 7. [Mandatory Flow](#7-mandatory-flow)
 8. [Safety](#8-safety)
 9. [Investigation History](#9-investigation-history)
+10. [Bluetooth BLE — Protocol and Limitations](#10-bluetooth-ble--protocol-and-limitations)
 
 ---
 
@@ -31,7 +32,7 @@ Covers everything confirmed working, what is dangerous, and how to use each comm
 | USB Interface | `2` (`DEVICE_INTERFACE = 0x02`) |
 | Input endpoint (interrupt) | `0x83` (`INTERRUPT_ENDPOINT`) |
 
-The mouse works in two connection modes: **wireless** via 2.4 GHz dongle (`0xfa60`) and **wired** via USB cable (`0xfa55`). The protocol is identical in both cases; only the `idProduct` detection differs.
+The mouse is **tri-mode**: **wireless** via 2.4 GHz dongle (`0xfa60`), **wired** via USB-C cable (`0xfa55`), and **Bluetooth 5.0** (BLE). The USB protocol is identical for the first two modes; only the `idProduct` detection differs. The BLE channel uses GATT and is described in [section 10](#10-bluetooth-ble--protocol-and-limitations).
 
 ---
 
@@ -344,3 +345,87 @@ Root cause of the original problem: `0x05` was sent before `0x04`. The firmware 
 - Fork with fixes: [dressedinblack5/attack-shark-x11-electron](https://github.com/dressedinblack5/attack-shark-x11-electron) (MIT)
 - Independent reverse engineering: [libratbag/libratbag#1807](https://github.com/libratbag/libratbag/issues/1807)
 - Official manual (pairing procedure): [manuals.plus](https://manuals.plus/m/b7d8ea1afd8e24ebb87e01493bba8a35c7ef27cd3551737ffe4a9a2e81f1818c)
+
+---
+
+## 10. Bluetooth BLE — Protocol and Limitations
+
+### BLE device setup
+
+The X11 is a tri-mode mouse: USB-C wired, 2.4 GHz dongle, and Bluetooth 5.0.
+On Linux, the BLE connection appears as an HoG (HID over GATT) device via BlueZ/uhid.
+
+```
+MAC address: 78:87:11:3E:C5:A9
+Name: X11mouse1
+```
+
+### Relevant GATT hierarchy
+
+```
+Service: 0000fee0-0000-1000-8000-00805f9b34fb  (Vendor config)
+  fee1  read                — current state (10 zero bytes)
+  fee2  write-without-response — (OAD/FW update, not used)
+  fee3  write               — COMMAND CHANNEL (host → mouse)
+  fee4  notify              — RESPONSE CHANNEL (mouse → host)
+  fee5  indicate            — status
+
+Service: f000ffc0-0451-4000-b000-000000000000  (TI BLE UART)
+  ffc1  write + notify      — device info (returns 24 00 bf 78 42 42 42 42 cc 6e)
+  ffc2  write + notify      — battery trigger (writing here → fee4 emits battery)
+
+Service: 0000180f-0000-1000-8000-00805f9b34fb  (Battery Service)
+  2a19  read + notify       — standard BLE battery level (value: 100%)
+
+Service: 00001812-0000-1000-8000-00805f9b34fb  (HID over GATT)
+  — Standard mouse input only (buttons, movement, scroll)
+  — Feature Reports NOT supported via HoG on this device's BLE
+```
+
+### fee3/fee4 protocol
+
+**Command format identical to USB wireless** — same builders, same serialization.
+
+Sending (fee3, `WriteValue` with `type='request'` required):
+```
+write-without-response → org.bluez.Error.NotSupported
+type='request'         → works
+```
+
+Payload: `DpiBuilder.build(ConnectionMode.Adapter)` (56 bytes) or
+         `UserPreferencesBuilder.build(ConnectionMode.Adapter)` (15 bytes).
+
+**Responses via fee4 (notify):**
+
+| Pattern             | Meaning                              |
+|---------------------|--------------------------------------|
+| `55 40 01 XX`       | Battery: XX = percentage (0–100)     |
+| `55 50 00 04`       | DPI ACK (report 0x04 accepted)       |
+| `55 50 00 05`       | Lighting ACK (report 0x05 accepted)  |
+| `55 10 XX`          | DPI stage change (XX = stage 1–6)    |
+
+**Battery trigger via ffc2:**
+Writing any data to `ffc2` with `type='request'` causes the mouse to emit
+`55 40 01 XX` on fee4. Used for initial battery reading.
+
+### Confirmed limitations
+
+- **Polling rate**: USB-only. No effect via BLE.
+- **Macros (button remapping)**: not tested via BLE; silently ignored in the BLE driver.
+- **HID Feature Reports via hidraw**: `HIDIOCSFEATURE` returns `EINVAL` — the mouse's BLE HID descriptor does not declare Feature Reports.
+- **Write-without-response**: returns `NotSupported`; only `request` (confirmed write) works.
+
+### USB-C wired mode limitation
+
+When connected via USB-C cable (`0xfa55`), the maximum supported polling rate is **125 Hz**. The 250 / 500 / 1000 Hz options are disabled in the UI when wired mode is detected.
+
+### App implementation
+
+Driver: `src/main/driver/src/core/AttackSharkX11BLE.ts`
+- Uses `dbus-next` to communicate with BlueZ via D-Bus
+- Discovers the device dynamically (searches for `fee0` UUID in managed objects)
+- Same event interface as `AttackSharkX11` (batteryChange, dpiStageChange, disconnect)
+- `setPollingRate()` and `setMacro()` are silent no-ops
+
+When connecting via BLE, only `applyLightingOnly()` is called (DPI + lighting).
+Polling rate and macros are skipped.

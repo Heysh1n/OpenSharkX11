@@ -51,6 +51,8 @@ const DICT = {
   'con.interface':{pt:'Interface',en:'Interface',zh:'接口'},
   'con.dongle':{pt:'2.4GHz dongle',en:'2.4GHz dongle',zh:'2.4GHz 接收器'},
   'con.cable':{pt:'USB-C cabo',en:'USB-C cable',zh:'USB-C 线缆'},
+  'con.bluetooth':{pt:'Bluetooth',en:'Bluetooth',zh:'蓝牙'},
+  'con.bt.limited':{pt:'Config. via Bluetooth (polling e macros ignorados)',en:'Config via Bluetooth (polling & macros skipped)',zh:'蓝牙配置（轮询和宏被忽略）'},
   'con.latency':{pt:'Latência',en:'Latency',zh:'延迟'},
   'con.signal':{pt:'Sinal',en:'Signal',zh:'信号'},
   'con.searching':{pt:'Buscando...',en:'Searching...',zh:'搜索中…'},

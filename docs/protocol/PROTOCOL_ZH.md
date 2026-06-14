@@ -18,6 +18,7 @@ Attack Shark X11 鼠标的 HID 协议逆向工程文档。
 7. [必须遵循的操作顺序](#7-必须遵循的操作顺序)
 8. [安全](#8-安全)
 9. [调查历史](#9-调查历史)
+10. [蓝牙 BLE — 协议与限制](#10-蓝牙-ble--协议与限制)
 
 ---
 
@@ -31,7 +32,7 @@ Attack Shark X11 鼠标的 HID 协议逆向工程文档。
 | USB 接口 | `2`（`DEVICE_INTERFACE = 0x02`） |
 | 输入端点（中断） | `0x83`（`INTERRUPT_ENDPOINT`） |
 
-鼠标支持两种连接方式：通过 2.4 GHz 接收器的**无线**模式（`0xfa60`）和通过 USB 线的**有线**模式（`0xfa55`）。两种模式下协议完全相同，仅 `idProduct` 的检测不同。
+鼠标支持**三种连接模式**：通过 2.4 GHz 接收器的**无线**模式（`0xfa60`）、通过 USB-C 线的**有线**模式（`0xfa55`）以及 **Bluetooth 5.0 BLE** 模式。前两种模式下 USB 协议完全相同，仅 `idProduct` 的检测不同。BLE 通道使用 GATT，详见[第 10 节](#10-蓝牙-ble--协议与限制)。
 
 ---
 
@@ -344,3 +345,86 @@ DPI 切换示例：`03 55 10 03 00` → 档位 3。
 - 修复版分支：[dressedinblack5/attack-shark-x11-electron](https://github.com/dressedinblack5/attack-shark-x11-electron)（MIT）
 - 独立逆向工程：[libratbag/libratbag#1807](https://github.com/libratbag/libratbag/issues/1807)
 - 官方手册（配对流程）：[manuals.plus](https://manuals.plus/m/b7d8ea1afd8e24ebb87e01493bba8a35c7ef27cd3551737ffe4a9a2e81f1818c)
+
+---
+
+## 10. 蓝牙 BLE — 协议与限制
+
+### BLE 设备配置
+
+X11 是一款三模鼠标：USB-C 有线、2.4 GHz 接收器和 Bluetooth 5.0。
+在 Linux 上，BLE 连接通过 BlueZ/uhid 以 HoG（HID over GATT）设备形式出现。
+
+```
+MAC 地址：78:87:11:3E:C5:A9
+设备名称：X11mouse1
+```
+
+### 相关 GATT 层级
+
+```
+服务：0000fee0-0000-1000-8000-00805f9b34fb  （厂商配置）
+  fee1  read                — 当前状态（10 个零字节）
+  fee2  write-without-response — （OAD/固件更新，不使用）
+  fee3  write               — 命令通道（主机 → 鼠标）
+  fee4  notify              — 响应通道（鼠标 → 主机）
+  fee5  indicate            — 状态
+
+服务：f000ffc0-0451-4000-b000-000000000000  （TI BLE UART）
+  ffc1  write + notify      — 设备信息（返回 24 00 bf 78 42 42 42 42 cc 6e）
+  ffc2  write + notify      — 电量触发（写入此处 → fee4 发出电量通知）
+
+服务：0000180f-0000-1000-8000-00805f9b34fb  （电池服务）
+  2a19  read + notify       — 标准 BLE 电量（值：100%）
+
+服务：00001812-0000-1000-8000-00805f9b34fb  （HID over GATT）
+  — 仅标准鼠标输入（按键、移动、滚轮）
+  — 此设备的 BLE 不支持 Feature Reports
+```
+
+### fee3/fee4 协议
+
+**命令格式与 USB 无线模式完全相同** — 使用相同的 builder，相同的序列化方式。
+
+发送（fee3，`WriteValue` 必须使用 `type='request'`）：
+```
+write-without-response → org.bluez.Error.NotSupported
+type='request'         → 正常工作
+```
+
+Payload：`DpiBuilder.build(ConnectionMode.Adapter)`（56 字节）或
+         `UserPreferencesBuilder.build(ConnectionMode.Adapter)`（15 字节）。
+
+**fee4 响应（notify）：**
+
+| 模式                | 含义                                 |
+|---------------------|--------------------------------------|
+| `55 40 01 XX`       | 电量：XX = 百分比（0–100）            |
+| `55 50 00 04`       | DPI 确认（report 0x04 已接受）        |
+| `55 50 00 05`       | 灯光确认（report 0x05 已接受）        |
+| `55 10 XX`          | DPI 档位切换（XX = 档位 1–6）         |
+
+**通过 ffc2 触发电量读取：**
+向 `ffc2` 写入任意数据（`type='request'`）会使鼠标在 fee4 上发出 `55 40 01 XX`。用于初始电量读取。
+
+### 已确认的限制
+
+- **轮询率**：仅限 USB 模式。BLE 下无效。
+- **宏（按键重映射）**：未在 BLE 下测试；BLE 驱动中静默忽略。
+- **通过 hidraw 使用 HID Feature Reports**：`HIDIOCSFEATURE` 返回 `EINVAL` — 该鼠标的 BLE HID 描述符未声明 Feature Reports。
+- **write-without-response**：返回 `NotSupported`；只有 `request`（确认写入）方式有效。
+
+### USB-C 有线模式限制
+
+通过 USB-C 线连接（`0xfa55`）时，最大支持轮询率为 **125 Hz**。有线模式下，UI 中 250 / 500 / 1000 Hz 选项将被禁用。
+
+### 应用实现
+
+驱动：`src/main/driver/src/core/AttackSharkX11BLE.ts`
+- 使用 `dbus-next` 通过 D-Bus 与 BlueZ 通信
+- 动态发现设备（在受管对象中搜索 `fee0` UUID）
+- 与 `AttackSharkX11` 相同的事件接口（batteryChange、dpiStageChange、disconnect）
+- `setPollingRate()` 和 `setMacro()` 为静默空操作
+
+通过 BLE 连接时，仅调用 `applyLightingOnly()`（DPI + 灯光）。
+轮询率和宏配置将被跳过。

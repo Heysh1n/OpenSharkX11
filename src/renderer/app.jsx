@@ -235,16 +235,18 @@ export default function App(){
   },[state.dpi,state.activeStage,state.angleSnap,state.ripple,connected])
 
   // ── connect helper (chamado no boot e pelo botão "buscar mouse") ─────────────
-  const reconnect = useCallback(async ()=>{
+  const reconnect = useCallback(async (mode)=>{
     if(!api||connecting) return
     setConnecting(true)
-    addLog({t:ts(),tag:'USB',cls:'info',m:'Searching for mouse...'})
+    const tag = mode==='bluetooth' ? 'BLE' : 'USB'
+    addLog({t:ts(),tag,cls:'info',m:'Searching for mouse...'})
     try {
-      const res = await api.connect()
+      const res = await api.connect(mode)
       if(res.ok){
         setConnected(true); setConnMode(res.mode)
-        set({conn:res.mode==='wireless'?'2.4ghz':'usb'})
-        addLog({t:ts(),tag:'USB',cls:'ok',m:`Connected via ${res.mode}`})
+        const connVal = res.mode==='wireless'?'2.4ghz':res.mode==='bluetooth'?'bluetooth':'usb'
+        set({conn:connVal})
+        addLog({t:ts(),tag,cls:'ok',m:`Connected via ${res.mode}`})
         const cfg = await api.getConfig()
         const rx = mainCfgToReact(cfg)
         if(rx){ setState(s=>({...s,...rx})); appliedRef.current=rx }
@@ -386,7 +388,7 @@ export default function App(){
     perf:PerfSection, profiles:ProfilesSection, settings:SettingsSection,
   }[section]
 
-  const connLabel = state.conn==='usb'?'USB-C':state.conn==='2.4ghz'?'2.4GHz':'—'
+  const connLabel = state.conn==='usb'?'USB-C':state.conn==='2.4ghz'?'2.4GHz':state.conn==='bluetooth'?'BT':'—'
 
   const win = (action)=>{
     if(!api) return

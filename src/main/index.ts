@@ -7,6 +7,7 @@ import { homedir } from 'os'
 // ─── driver ──────────────────────────────────────────────────────────────────
 import * as usb from 'usb'
 import { AttackSharkX11 } from './driver/src/core/AttackSharkX11.js'
+import { AttackSharkX11BLE } from './driver/src/core/AttackSharkX11BLE.js'
 import { ConnectionMode } from './driver/src/types.js'
 import { DpiBuilder } from './driver/src/protocols/DpiBuilder.js'
 import { MacrosBuilder, macroTemplates, type MacroTuple, FirmwareAction, Modifiers } from './driver/src/protocols/MacrosBuilder.js'
@@ -29,12 +30,13 @@ const save = (f: string, d: unknown) => writeFileSync(f, JSON.stringify(d, null,
 
 // ─── fila segura (min 300ms entre comandos USB) ───────────────────────────────
 const SAFE_DELAY = 300
-let driver: AttackSharkX11 | null = null
+type AnyDriver = AttackSharkX11 | AttackSharkX11BLE
+let driver: AnyDriver | null = null
 let queue: Promise<unknown> = Promise.resolve()
 let mainWin: BrowserWindow | null = null
 let tray: Tray | null = null
 let appIsQuitting = false
-let currentConnMode: 'wireless' | 'wired' | null = null
+let currentConnMode: 'wireless' | 'wired' | 'bluetooth' | null = null
 
 function run<T>(fn: () => Promise<T>): Promise<T> {
   const t = queue.then(fn)
@@ -136,7 +138,7 @@ function bindingToTuple(b: Binding): MacroTuple {
   return tpl
 }
 
-async function applyLightingOnly(d: AttackSharkX11, cfg: AppState) {
+async function applyLightingOnly(d: AnyDriver, cfg: AppState) {
   const stage = (Math.min(5, Math.max(0, cfg.dpi.activeStage)) + 1) as 1|2|3|4|5|6
   const override = batteryOverrideForLevel(mouseBattery)
   const effectiveMode = override?.mode ?? cfg.lighting.mode
@@ -163,7 +165,7 @@ async function applyLightingOnly(d: AttackSharkX11, cfg: AppState) {
   }))
 }
 
-async function applyAll(d: AttackSharkX11, cfg: AppState) {
+async function applyAll(d: AnyDriver, cfg: AppState) {
   await applyLightingOnly(d, cfg)
 
   await d.setPollingRate(new PollingRateBuilder({
@@ -245,18 +247,18 @@ function buildTrayMenu(connected: boolean) {
   ])
 }
 
-function updateTray(connected: boolean, battery: number, usbMode: boolean) {
+function updateTray(connected: boolean, battery: number, usbMode: boolean, btMode = false) {
   if (!tray) return
   tray.setImage(makeTrayIcon(connected))
   tray.setContextMenu(buildTrayMenu(connected))
 
   let tooltip = 'OpenSharkX11'
-  if (!connected) tooltip += ' · Disconnected'
-  else if (usbMode) tooltip += ' · USB · Charging'
-  else tooltip += battery >= 0 ? ` · ${battery}%` : ' · Connected'
+  if (!connected)    tooltip += ' · Disconnected'
+  else if (usbMode)  tooltip += ' · USB · Charging'
+  else if (btMode)   tooltip += battery >= 0 ? ` · BT · ${battery}%` : ' · BT'
+  else               tooltip += battery >= 0 ? ` · ${battery}%` : ' · Connected'
   tray.setToolTip(tooltip)
 
-  // título ao lado do ícone (visível em KDE / AppIndicator)
   tray.setTitle(connected && !usbMode && battery >= 0 ? ` ${battery}%` : '')
 }
 
@@ -325,98 +327,134 @@ app.whenReady().then(() => {
   })
 
   // ── controles da janela ──
-  ipcMain.on('win:minimize', () => mainWin?.minimize())
+  ipcMain.on('win:minimize', () => mainWin?.hide())
   ipcMain.on('win:maximize', () => mainWin?.isMaximized() ? mainWin!.unmaximize() : mainWin?.maximize())
   ipcMain.on('win:close',   () => mainWin?.close())
 
   // ── conexão ──
-  // Tenta um modo específico; se não passado, tenta adapter depois wired
-  ipcMain.handle('device:connect', async (_evt, preferredMode?: 'wireless' | 'wired') => {
-    // fechar conexão anterior se existir
+  ipcMain.handle('device:connect', async (_evt, preferredMode?: 'wireless' | 'wired' | 'bluetooth') => {
     if (driver) {
       try { await driver.close() } catch {}
       driver = null
     }
 
-    // pre-check rápido: verifica visibilidade USB sem scan extra
-    const all = usb.getDeviceList()
-    if (all.length === 0) return { ok: false, error: 'Módulo USB nativo sem dispositivos — possível incompatibilidade de ABI.' }
-    const shark = all.filter((d: any) => d.deviceDescriptor.idVendor === 0x1d57)
-    if (shark.length === 0) return { ok: false, error: `Mouse não encontrado (${all.length} dispositivos USB detectados). Verifique se o mouse ou dongle está conectado.` }
-    console.log(`[connect] ${shark.length} dispositivo(s) Attack Shark detectado(s)`)
+    // Helper: wires up common event handlers and starts battery polling
+    function attachDriver(d: AnyDriver, modeName: 'wireless' | 'wired' | 'bluetooth') {
+      driver = d
+      mouseBattery = -1
 
-    const modes: ConnectionMode[] = preferredMode === 'wired'
-      ? [ConnectionMode.Wired, ConnectionMode.Adapter]
-      : [ConnectionMode.Adapter, ConnectionMode.Wired]
+      d.on('batteryChange', (bat: number) => {
+        const prevOverride = batteryOverrideForLevel(mouseBattery)
+        mouseBattery = bat
+        mainWin?.webContents.send('mouse:battery', bat)
+        updateTray(true, bat, currentConnMode === 'wired', currentConnMode === 'bluetooth')
+        if (JSON.stringify(batteryOverrideForLevel(bat)) !== JSON.stringify(prevOverride)) {
+          run(() => applyLightingOnly(driver!, state))
+        }
+      })
 
-    let lastError = ''
-    for (const mode of modes) {
-      try {
-        console.log(`[connect] tentando modo ${mode === ConnectionMode.Adapter ? '2.4GHz' : 'USB'} (idProduct=0x${mode.toString(16)})...`)
-        const d = new AttackSharkX11({ connectionMode: mode, delayMs: SAFE_DELAY })
-        await d.open()
-        driver = d
-        mouseBattery = -1
+      d.on('dpiStageChange', (stage: number) => {
+        console.log(`[dpi] estágio físico mudou para ${stage} (0-indexed)`)
+        state.dpi.activeStage = stage
+        save(STATE_FILE, state)
+        mainWin?.webContents.send('mouse:dpiStage', stage)
+      })
 
-        // Monitor de bateria — reage a mudanças e atualiza LED automaticamente
-        driver.on('batteryChange', (bat: number) => {
-          const prevOverride = batteryOverrideForLevel(mouseBattery)
-          mouseBattery = bat
-          mainWin?.webContents.send('mouse:battery', bat)
-          updateTray(true, bat, currentConnMode === 'wired')
-          if (JSON.stringify(batteryOverrideForLevel(bat)) !== JSON.stringify(prevOverride)) {
-            run(() => applyLightingOnly(driver!, state))
-          }
-        })
-
-        // Sincroniza estágio DPI ativo quando o botão físico é pressionado
-        driver.on('dpiStageChange', (stage: number) => {
-          console.log(`[dpi] estágio físico mudou para ${stage} (0-indexed)`)
-          state.dpi.activeStage = stage
-          save(STATE_FILE, state)
-          mainWin?.webContents.send('mouse:dpiStage', stage)
-        })
-
-        // Detecta desconexão inesperada (mouse desligado / cabo removido)
-        driver.on('error', (err: Error) => {
-          console.warn('[usb] driver error — mouse desconectado:', err.message)
+      // BLE disconnect event; USB uses 'error' event
+      if (d instanceof AttackSharkX11BLE) {
+        d.on('disconnect', () => {
+          console.warn('[ble] mouse desconectou')
           if (batteryPollTimer) { clearInterval(batteryPollTimer); batteryPollTimer = null }
-          mouseBattery = -1
-          currentConnMode = null
+          mouseBattery = -1; currentConnMode = null
+          driver = null
+          mainWin?.webContents.send('mouse:disconnected')
+          updateTray(false, -1, false)
+        })
+      } else {
+        (d as AttackSharkX11).on('error', (err: Error) => {
+          console.warn('[usb] driver error — desconectado:', err.message)
+          if (batteryPollTimer) { clearInterval(batteryPollTimer); batteryPollTimer = null }
+          mouseBattery = -1; currentConnMode = null
           try { driver?.close() } catch {}
           driver = null
           mainWin?.webContents.send('mouse:disconnected')
           updateTray(false, -1, false)
         })
+      }
 
-        // Leitura inicial + poll a cada 5 min (batteryChange pode não disparar sozinho)
-        const pollBattery = async () => {
-          if (!driver) return
-          try {
-            const bat = await driver.getBatteryLevel(2000)
-            if (bat >= 0 && bat !== mouseBattery) driver.emit('batteryChange', bat)
-          } catch {}
-        }
-        pollBattery()
-        if (batteryPollTimer) clearInterval(batteryPollTimer)
-        batteryPollTimer = setInterval(pollBattery, 5 * 60_000)
+      // Battery polling (BLE gets battery via notifications; USB needs polling too)
+      const pollBattery = async () => {
+        if (!driver) return
+        try {
+          const bat = await driver.getBatteryLevel(2000)
+          if (bat >= 0 && bat !== mouseBattery) driver.emit('batteryChange', bat)
+        } catch {}
+      }
+      pollBattery()
+      if (batteryPollTimer) clearInterval(batteryPollTimer)
+      batteryPollTimer = setInterval(pollBattery, 5 * 60_000)
 
-        const modeName = mode === ConnectionMode.Adapter ? 'wireless' : 'wired'
-        currentConnMode = modeName
-        console.log(`[connect] conectado via ${modeName}`)
-        updateTray(true, mouseBattery, modeName === 'wired')
+      currentConnMode = modeName
+      updateTray(true, mouseBattery, modeName === 'wired', modeName === 'bluetooth')
+      console.log(`[connect] conectado via ${modeName}`)
+    }
 
-        // Aplicar configuração salva automaticamente ao conectar
-        run(() => applyAll(d, state)).catch(e => console.warn('[connect] applyAll falhou:', e.message))
+    // ── Helper: connect via BLE ──────────────────────────────────────────────
+    async function tryBLE(): Promise<{ok:boolean,mode?:string,error?:string}> {
+      console.log('[connect] tentando Bluetooth...')
+      const d = new AttackSharkX11BLE()
+      await d.open()
+      attachDriver(d, 'bluetooth')
+      run(() => applyLightingOnly(d, state)).catch(e => console.warn('[connect] applyLightingOnly BLE falhou:', e.message))
+      return { ok: true, mode: 'bluetooth' }
+    }
 
-        return { ok: true, mode: modeName }
-      } catch (e) {
-        lastError = e instanceof Error ? e.message : String(e)
-        console.warn(`[connect] falhou modo 0x${mode.toString(16)}:`, lastError)
+    // ── BLE explicitly requested ──────────────────────────────────────────────
+    if (preferredMode === 'bluetooth') {
+      try { return await tryBLE() }
+      catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        console.warn('[connect] BLE falhou:', msg)
+        return { ok: false, error: msg }
       }
     }
 
-    return { ok: false, error: lastError || 'Mouse não encontrado' }
+    // ── Try USB (wireless then wired, or reverse if preferred) ───────────────
+    const all = usb.getDeviceList()
+    const shark = all.filter((d: any) => d.deviceDescriptor.idVendor === 0x1d57)
+    if (all.length > 0) console.log(`[connect] ${shark.length} dispositivo(s) Attack Shark detectado(s) de ${all.length} USB`)
+
+    const modes: ConnectionMode[] = preferredMode === 'wired'
+      ? [ConnectionMode.Wired, ConnectionMode.Adapter]
+      : [ConnectionMode.Adapter, ConnectionMode.Wired]
+
+    let lastUsbError = ''
+    if (shark.length > 0) {
+      for (const mode of modes) {
+        try {
+          console.log(`[connect] tentando ${mode === ConnectionMode.Adapter ? '2.4GHz' : 'USB'} (0x${mode.toString(16)})...`)
+          const d = new AttackSharkX11({ connectionMode: mode, delayMs: SAFE_DELAY })
+          await d.open()
+          const modeName = mode === ConnectionMode.Adapter ? 'wireless' : 'wired'
+          attachDriver(d, modeName)
+          run(() => applyAll(d, state)).catch(e => console.warn('[connect] applyAll falhou:', e.message))
+          return { ok: true, mode: modeName }
+        } catch (e) {
+          lastUsbError = e instanceof Error ? e.message : String(e)
+          console.warn(`[connect] falhou modo 0x${mode.toString(16)}:`, lastUsbError)
+        }
+      }
+    }
+
+    // ── BLE fallback (auto, sem dongle/cabo detectado) ────────────────────────
+    try { return await tryBLE() }
+    catch (bleErr) {
+      const bleMsg = bleErr instanceof Error ? bleErr.message : String(bleErr)
+      console.warn('[connect] BLE fallback falhou:', bleMsg)
+      // Return most relevant error: USB if we found the device but couldn't open, else BLE
+      const finalErr = lastUsbError || bleMsg
+      return { ok: false, error: finalErr }
+    }
   })
 
   ipcMain.handle('device:disconnect', async () => {

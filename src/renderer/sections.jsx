@@ -22,7 +22,7 @@ export function Panel({label, idx, right, children, className}){
 export function Toggle({on,onClick}){return <button className={'toggle'+(on?' on':'')} onClick={onClick}><i></i></button>}
 export function Seg({options,value,onChange,live}){
   return <div className={'seg'+(live?' live':'')}>{options.map(o=>(
-    <button key={o.v??o} className={(value===(o.v??o))?'on':''} onClick={()=>onChange(o.v??o)}>{o.l??o}</button>
+    <button key={o.v??o} className={(value===(o.v??o))?'on':''} disabled={!!o.disabled} onClick={()=>!o.disabled&&onChange(o.v??o)}>{o.l??o}</button>
   ))}</div>
 }
 function RowToggle({label,sub,on,onClick}){
@@ -36,9 +36,18 @@ function RowToggle({label,sub,on,onClick}){
 export function ConsoleSection({ctx}){
   const {state, mouseProps, t, connected, connecting, reconnect, usbCharged, usbColor} = ctx
   const usbConn = state.conn==='usb'
+  const btConn  = state.conn==='bluetooth'
   const battColor = state.batt<15?'var(--danger)':state.batt<30?'var(--warn)':'var(--good)'
   const activeStage = state.dpi[state.activeStage]
   const activeColor = usbConn ? (usbColor||USB_LED_COLOR) : activeStage.color
+
+  function connLabel() {
+    if (!connected) return t('sb.disconnected')
+    if (state.conn==='usb')       return t('con.cable')
+    if (state.conn==='bluetooth') return t('con.bluetooth')
+    return t('con.dongle')
+  }
+
   return (
     <div className="cockpit fade-in">
       <div className="col">
@@ -47,18 +56,26 @@ export function ConsoleSection({ctx}){
             <div className="k">{t('con.interface')}</div>
             <div className="v" style={{display:'flex',alignItems:'center',gap:'7px'}}>
               <span className={'conn-dot'+(connected?' ok':'')} style={{position:'static'}}></span>
-              {connected ? (state.conn==='usb'?t('con.cable'):t('con.dongle')) : t('sb.disconnected')}
+              {connLabel()}
             </div>
           </div>
+          {btConn && (
+            <div className="tiny" style={{color:'var(--dim)',marginBottom:'10px'}}>{t('con.bt.limited')}</div>
+          )}
           <div className="divider"></div>
-          <button
-            className="btn"
-            style={{width:'100%',marginBottom:'10px'}}
-            onClick={reconnect}
-            disabled={connecting}
-          >
-            {connecting ? t('con.searching') : connected ? t('con.reconnect') : t('con.findmouse')}
-          </button>
+          <div style={{display:'flex',gap:'8px',marginBottom:'10px'}}>
+            <button className="btn" style={{flex:1}} onClick={reconnect} disabled={connecting}>
+              {connecting ? t('con.searching') : connected ? t('con.reconnect') : t('con.findmouse')}
+            </button>
+            {!connected && (
+              <button className="btn" style={{flex:'0 0 auto',padding:'0 12px'}}
+                title={t('con.bluetooth')}
+                onClick={()=>reconnect('bluetooth')}
+                disabled={connecting}>
+                BT
+              </button>
+            )}
+          </div>
           <RowToggle label={t('con.autorecon')} sub={t('con.autorecon.s')} on={state.autoReconnect} onClick={()=>ctx.set({autoReconnect:!state.autoReconnect})}/>
         </Panel>
         <Panel label={t('con.battery')} idx="02">
@@ -392,12 +409,16 @@ export function ButtonsSection({ctx}){
 export function PerfSection({ctx}){
   const {state, t, connected, applyBindings} = ctx
   const applyPerf = ctx.applyPerf || applyBindings
+  const usbWired = state.conn === 'usb'
+  const pollingOpts = POLLING.map(p=>({v:p, l:p+'Hz', disabled: usbWired && p !== 125}))
   return (
     <div className="cockpit fade-in">
       <div className="col">
         <Panel label={t('pf.polling')} idx="01">
-          <Seg live options={POLLING.map(p=>({v:p,l:p+'Hz'}))} value={state.polling} onChange={v=>ctx.set({polling:v})}/>
-          <div className="muted" style={{fontSize:'10px',marginTop:'10px',lineHeight:1.5}}>{t('pf.polling.d')}</div>
+          <Seg live options={pollingOpts} value={state.polling} onChange={v=>ctx.set({polling:v})}/>
+          <div className="muted" style={{fontSize:'10px',marginTop:'10px',lineHeight:1.5}}>
+            {usbWired ? '⚠ USB-C mode: max 125 Hz' : t('pf.polling.d')}
+          </div>
         </Panel>
         <Panel label={t('pf.debounce')} idx="02">
           <div className="row" style={{marginBottom:'10px'}}>
