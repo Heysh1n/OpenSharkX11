@@ -66,7 +66,6 @@
       "afterInstall": "scripts/postinstall-deb.sh",
       "afterRemove": "scripts/postremove-deb.sh"
     },
-    "electronDist": "/usr/lib/electron34",
     "extraResources": [
       {
         "from": "assets",
