@@ -1,361 +1,349 @@
-# Protocolo do Attack Shark X11 — Investigação de Iluminação RGB
+# Protocolo USB — Attack Shark X11
 
-> **Leia isto inteiro antes de enviar qualquer comando novo ao mouse.**
-> Já tivemos um incidente de despareamento durante esta investigação (ver
-> seção "Incidente"). O hardware está saudável, mas comandos não verificados
-> têm efeitos colaterais reais e às vezes irreversíveis sem o procedimento
-> de repareamento manual.
+Documentação do protocolo HID reverso do mouse Attack Shark X11.
+Cobre tudo que foi confirmado funcionando, o que é perigoso, e como usar cada comando.
 
-## TL;DR para o Claude Code
-
-- Hardware: Attack Shark X11, vendor `0x1d57`, 2.4GHz `idProduct=0xfa60`,
-  wired `idProduct=0xfa55`. Conexão via `usb` (node), controlTransfer
-  `bmRequestType=0x21, bRequest=0x09`.
-- **Reports que JÁ FUNCIONAM e são SEGUROS de variar**: `0x04` (DPI, 56 bytes,
-  `wValue=0x0304`), `0x06` (polling rate, `wValue=0x0306`), MacrosBuilder,
-  CustomMacroBuilder. Todos com `wIndex=2`.
-- **Report `0x05` (UserPreferencesBuilder) FUNCIONA** — controla animações
-  contínuas (Static, Breathing, Neon, ColorBreathing, StaticDpi, BreathingDpi).
-  **Pré-requisito obrigatório**: enviar `0x04` antes; `0x05` sozinho não tem
-  efeito. Ordem: `0x04` (DPI + cores) → `0x05` (modo de animação + velocidade).
-- **Report PERIGOSO, NÃO REUTILIZAR sem motivo muito forte**: Report ID
-  `0x0b` (`wValue=0x030b`) — causa efeito visual (LED verde → apaga) e
-  aparenta interferir no estado do rádio/pareamento 2.4GHz.
-- **A iluminação real provavelmente está dentro do report `0x04`** (mesmo
-  do DPI), nos bytes 25-47 — ver seção "Descoberta do layout RGB".
-- **REGRA DE OURO**: toda nova hipótese de payload deve ser uma variação
-  mínima (idealmente só os bytes de cor) de um payload **já confirmado
-  funcional**, com checksum recalculado. Nunca testar Report IDs novos
-  ou `wIndex` diferentes de 2 sem necessidade comprovada.
+> **Antes de enviar qualquer payload novo ao mouse:** leia a seção [Segurança](#segurança) e o [Incidente de despareamento](#incidente-de-despareamento) no histórico.
 
 ---
 
-## Histórico da investigação
+## Índice
 
-### 1. Estado inicial
-O driver vendorizado (`src/main/driver/`, fork de
-[HarukaYamamoto0/attack-shark-x11-driver](https://github.com/HarukaYamamoto0/attack-shark-x11-driver))
-tinha um `UserPreferencesBuilder` (report `0x05`, 15 bytes) supostamente
-responsável por modo de luz, RGB, velocidade do LED, sleep timers e key
-response. Copiamos uma versão "corrigida" desse builder do fork
-[dressedinblack5/attack-shark-x11-electron](https://github.com/dressedinblack5/attack-shark-x11-electron).
-
-**Resultado**: `setUserPreferences()` sempre retorna sucesso (sem erro USB),
-mas o LED do mouse nunca muda — fica sempre em "respiração azul" (padrão de
-fábrica). DPI, polling rate, botões e macro funcionam perfeitamente (mesma
-camada de transporte, builders diferentes).
-
-### 2. Diagnóstico fase 1 (`wIndex`)
-Testamos o payload do `UserPreferencesBuilder` com `wIndex=0,1,2`.
-- `wIndex=0` e `wIndex=1` → `LIBUSB_ERROR_IO` (interfaces não aceitam).
-- `wIndex=2` → sempre `OK`, mas sem efeito. Confirma que `wIndex=2` é a
-  interface correta (mesma usada por DPI/polling que funcionam).
-
-### 3. Diagnóstico fase 2 (Report ID)
-Mantendo `wIndex=2`, variamos o **Report ID** (byte 0 do payload) de
-`0x01` a `0x0c`, com `wValue = 0x03XX` (high byte `0x03` = HID Feature
-Report, low byte = Report ID — convenção HID padrão).
-
-- `0x01`–`0x0a`, `0x0c`: sem efeito visível.
-- **`0x0b` (`wValue=0x030b`)**: LED reagiu — ficou **verde e depois apagou
-  completamente**.
-
-### 4. Incidente de despareamento
-Continuando a explorar `0x0b` e outros IDs na fase 4 (payload Static+Vermelho
-completo, todos os IDs 0x01-0x0f), o dongle 2.4GHz **perdeu o pareamento**
-com o mouse — LED do dongle ficou piscando, mouse não respondia.
-
-- **Diagnóstico**: dongle continuou visível via `lsusb`/`usb.getDeviceList()`
-  (`idProduct=0xfa60` presente) — hardware do dongle intacto.
-- **Teste via cabo**: mouse respondeu normalmente via `idProduct=0xfa55`
-  (wired) — firmware do mouse intacto, sem dano.
-- **Recuperação**: procedimento oficial do manual — *"Mouse not connecting
-  (2.4G): Ensure the receiver is properly plugged in... Try re-pairing by
-  holding the DPI button."* Usuário desligou/religou o mouse e **segurou o
-  botão de DPI** (parte inferior do mouse) → repareou com sucesso.
-
-**Conclusão**: Report ID `0x0b` (e possivelmente outros não testados)
-parecem ser comandos de **ação/sistema** (ex: "identify", "reset RF
-channel", "factory pairing reset") em vez de configuração persistente.
-Enviar payloads arbitrários para Report IDs desconhecidos pode interferir
-no estado do rádio 2.4GHz.
-
-### 5. Pesquisa: issue do libratbag
-Encontramos [libratbag/libratbag#1807](https://github.com/libratbag/libratbag/issues/1807),
-que documenta reverse-engineering independente do X11 via Wireshark +
-software oficial Windows. Achados relevantes:
-
-> The X11 uses two distinct report types for configuration: a 56-byte Bulk
-> Profile for persistent settings and a 9-byte Short Report for real-time
-> hardware changes.
->
-> **A. Configuration Profile (Report ID 04)** — 56-byte ($0x38$) Feature
-> Report.
-> - Bytes 05-10: DPI Stage Indices (6 slots)
-> - **Bytes 20-30: RGB Zone Data (24-bit RGB hex codes)**
->
-> **B. Polling Rate (Report ID 06)** — 9-byte command with checksum.
-> Format: `06 09 01 [Value] [Checksum] 00 00 00 00`. Checksum = one's
-> complement (`0xFF - Value`).
-
-Isso é uma **pista forte**: a iluminação não é um report separado — está
-embutida no mesmo report `0x04` do DPI, que já confirmamos funcionar no
-nosso hardware.
-
-> Nota: os offsets exatos do issue (20-30) não coincidem 1:1 com os offsets
-> do nosso `DpiBuilder` local (25-47) — o issue pode estar usando indexação
-> ligeiramente diferente (ex: sem contar os 3 bytes de header, ou um Report
-> ID de tamanho/versão diferente). Tratar como pista, não como verdade
-> absoluta — validar empiricamente.
-
-### 6. Descoberta do layout RGB (análise local)
-Reconstruímos o payload exato que o `DpiBuilder` gera (e que já foi enviado
-com sucesso) e analisamos os bytes "fixos" que o builder atual hardcoda:
-
-```
-offset  3: 0x00  (angleSnap)
-offset  4: 0x01  (rippleControl)
-offset  5: 0x3f  (fixo)
-offset 6-7: stage mask (0x20 0x20 no default — stage 6=22000 > 12000)
-offset 8-13: DPI stages encoded (tabela DPI_STEP_MAP)
-offset 14-15: 0x00 (fixo)
-offset 16-21: high-stage flags (0x01 se DPI em [10100,12000] ou [20100,22000])
-offset 22-23: 0x00 (fixo)
-offset 24: estágio ativo (1-6)
-offset 25-47: 8 blocos de 3 bytes (RGB!) — ver tabela abaixo
-offset 48: 0xff (fixo, não confirmado)
-offset 49: 0x02 (fixo, possível seletor de modo/efeito)
-offset 50-51: checksum (uint16BE, soma dos bytes 3-49)
-offset 52-55: padding (modo wireless)
-```
-
-**Paleta de 8 cores encontrada nos offsets fixos do `DpiBuilder`:**
-
-| Offset | Cor (hex) | Nome aproximado |
-|--------|-----------|-----------------|
-| 25-27  | `ff0000`  | Vermelho |
-| 28-30  | `00ff00`  | Verde |
-| 31-33  | `0000ff`  | Azul |
-| 34-36  | `ffff00`  | Amarelo |
-| 37-39  | `00ffff`  | Ciano |
-| 40-42  | `ff00ff`  | Magenta |
-| 43-45  | `ff4000`  | Laranja |
-| 46-48  | `ffffff`  | Branco |
-
-Hipótese: 6 destes blocos correspondem aos 6 estágios de DPI (cada estágio
-tem uma cor própria — confirmado pelo manual oficial: *"Each DPI setting is
-indicated by a different color light inside the mouse"*), e os 2 extras são
-para outro propósito (talvez modo "todos"/idle/desligado).
-
-**Payload base verificado** (idêntico ao `DpiBuilder` default, byte a byte):
-```
-04380100013f20201225384b75810000000000000001000002ff000000ff000000ffffff0000ffffff00ffff4000ffffff020f6800000000
-```
-
-### 7. Primeiro teste do script — CONFIRMAÇÃO DO LAYOUT RGB (2026-06-12)
-
-`scripts/diag-rgb-safe.js` executado. Payload base: estágio ativo = 2,
-blocos de cor padrão (bloco1=`ff0000`, bloco2=`00ff00`, etc).
-
-**Teste 1** — bloco 1 (offsets 25-27) `ff0000` → roxo `a259ff`:
-- Payload enviado: `04380100013f20201225384b75810000000000000001000002a259ff00ff000000ffffff0000ffffff00ffff4000ffffff02106300000000`
-- Resultado observado: **piscou verde e desligou**
-- Análise: mudar bloco 1 não teve efeito visível — o estágio ativo era 2,
-  então o LED continuou exibindo a cor do bloco 2 (`00ff00` = verde).
-  "Desligou" = fase off do modo breathing (byte 49 = `0x02`).
-
-**Teste 2** — bloco 2 (offsets 28-30) `00ff00` → turquesa `5be3d2`:
-- Payload enviado: `04380100013f20201225384b75810000000000000001000002ff00005be3d20000ffffff0000ffffff00ffff4000ffffff02107900000000`
-- Resultado observado: **piscou meio ciano e desligou**
-- Análise: turquesa (`5be3d2`) ≈ ciano — mudança de cor **confirmada**.
-  **PROVA DEFINITIVA**: bloco 2 (offsets 28-30) = cor do estágio 2.
-
-**Teste 3** — paleta original restaurada:
-- Payload enviado: `04380100013f20201225384b75810000000000000001000002ff000000ff000000ffffff0000ffffff00ffff4000ffffff020f6800000000`
+1. [Hardware e Identificação](#1-hardware-e-identificação)
+2. [Transporte HID](#2-transporte-hid)
+3. [Report 0x04 — DPI + Iluminação](#3-report-0x04--dpi--iluminação)
+4. [Report 0x05 — Modo de Animação](#4-report-0x05--modo-de-animação)
+5. [Report 0x06 — Polling Rate](#5-report-0x06--polling-rate)
+6. [Eventos de Entrada (Interrupt 0x83)](#6-eventos-de-entrada-interrupt-0x83)
+7. [Fluxo Obrigatório](#7-fluxo-obrigatório)
+8. [Segurança](#8-segurança)
+9. [Histórico da Investigação](#9-histórico-da-investigação)
 
 ---
 
-### 8. Mapeamento do byte 49 — modos/efeitos (2026-06-12)
+## 1. Hardware e Identificação
 
-`scripts/diag-rgb-mode.js` — fase 1 (`0x00`-`0x03`) e fase 2 (`0x04`-`0x08`).
+| Campo | Valor |
+|---|---|
+| Vendor ID | `0x1d57` |
+| Product ID (2.4 GHz / dongle) | `0xfa60` |
+| Product ID (USB com cabo) | `0xfa55` |
+| Interface USB | `2` (`DEVICE_INTERFACE = 0x02`) |
+| Endpoint de entrada (interrupt) | `0x83` (`INTERRUPT_ENDPOINT`) |
 
-| byte 49 | Comportamento observado |
-|---------|------------------------|
-| `0x00`  | LED apagado |
-| `0x01`  | Pisca verde ~3-4x e para (blink finito) |
-| `0x02`  | Breathing (acende verde, fica alguns segundos, apaga) |
-| `0x03`  | LED apagado |
-| `0x04`–`0x08` | LED apagado (firmware ignora valores desconhecidos) |
+O mouse funciona em dois modos de conexão: **wireless** via dongle 2.4 GHz (`0xfa60`) e **wired** via cabo USB (`0xfa55`). O protocolo é idêntico nos dois casos; apenas a detecção do `idProduct` muda.
 
-**Fase 3 — valores altos + bytes 14-15 (2026-06-12):**
+---
 
-| Teste | Observado |
-|-------|-----------|
-| `byte49=0x0a` | apagado |
-| `byte49=0x10` | apagado |
-| `byte49=0xff` | apagado |
-| `byte49=0x02 + byte14=0x01` | "acendeu verde por um tempo e desligou" (sem diferença perceptível) |
-| `byte49=0x02 + byte14=0xff` | "acendeu verde e desligou" (sem diferença) |
-| `byte49=0x02 + byte15=0x01` | "acendeu verde e desligou" (sem diferença) |
+## 2. Transporte HID
 
-**Conclusão final sobre byte 49 — animações one-shot (2026-06-12):**
+Todos os comandos são enviados via **HID Feature Report** usando `controlTransfer`:
 
-Nenhum dos valores produz efeito **contínuo**. Byte 49 controla a animação
-de confirmação disparada no momento em que o payload é recebido. Após a
-animação, o LED apaga e permanece apagado.
+```
+bmRequestType = 0x21   (Host → Device, Class, Interface)
+bRequest      = 0x09   (SET_REPORT)
+wValue        = 0x03XX (0x03 = Feature Report; XX = Report ID)
+wIndex        = 0x0002 (Interface 2 — única que aceita)
+data          = payload do report (ver seções abaixo)
+```
 
-| byte 49 | Animação one-shot |
-|---------|-------------------|
-| `0x00` | Nenhuma — apaga imediatamente |
-| `0x01` | ~2 piscadas rápidas, depois apagado |
-| `0x02` | Sólido ~3s (sem fade/gradiente), depois apagado |
+> `wIndex=0` e `wIndex=1` retornam `LIBUSB_ERROR_IO`. Sempre usar `wIndex=2`.
+
+---
+
+## 3. Report 0x04 — DPI + Iluminação
+
+Report de **56 bytes** (`0x38`). Controla DPI, cores por estágio e uma animação de confirmação one-shot.
+
+### Layout completo
+
+```
+Byte  Valor     Descrição
+──────────────────────────────────────────────────────────
+ 00   0x04      Report ID
+ 01   0x38      Tamanho (56)
+ 02   0x01      Fixo
+ 03   angleSnap 0x00 = desligado · 0x01 = ligado
+ 04   ripple    0x01 = ligado · 0x00 = desligado
+ 05   0x3f      Fixo (propósito desconhecido)
+ 06   stageMask high byte (0x20 se DPI stage 6 > 12000)
+ 07   stageMask low byte  (0x20 no padrão)
+08–13 DPI[1–6]  Estágios DPI codificados (DPI_STEP_MAP)
+14–15 0x00      Fixo
+16–21 highFlags 0x01 se DPI > 12000 (flags por estágio)
+22–23 0x00      Fixo
+ 24   stage     Estágio ativo (1–6, 1-indexed)
+
+25–27 RGB[1]    Cor do estágio 1 (R, G, B)
+28–30 RGB[2]    Cor do estágio 2
+31–33 RGB[3]    Cor do estágio 3
+34–36 RGB[4]    Cor do estágio 4
+37–39 RGB[5]    Cor do estágio 5
+40–42 RGB[6]    Cor do estágio 6
+43–45 RGB[7]    Extra (propósito desconhecido)
+46–48 RGB[8]    Extra (propósito desconhecido)
+
+ 49   anim      Animação one-shot (ver tabela abaixo)
+50–51 checksum  uint16 big-endian, soma dos bytes 3–49
+52–55 0x00      Padding (apenas modo wireless)
+```
+
+### Cores por estágio
+
+O LED exibe a cor do **estágio ativo** (`byte[24]`). Cada bloco ocupa 3 bytes (R, G, B):
+
+| Estágio | Offsets |
+|---------|---------|
+| 1 | 25–27 |
+| 2 | 28–30 |
+| 3 | 31–33 |
+| 4 | 34–36 |
+| 5 | 37–39 |
+| 6 | 40–42 |
+
+O brilho é controlado pela **magnitude dos valores RGB** — valores baixos (ex: `0x08`) produzem LED visivelmente mais fraco que `0xff`.
+
+### Animação one-shot (byte 49)
+
+Disparada no momento em que o firmware recebe o report. Após a animação, o LED apaga. Para iluminação contínua, usar o Report `0x05` em seguida.
+
+| byte 49 | Comportamento |
+|---------|---------------|
+| `0x00` | Sem animação — apaga imediatamente |
+| `0x01` | ~3 piscadas rápidas, depois apagado |
+| `0x02` | Sólido ~3s, depois apagado |
 | outros | Apagado (firmware ignora) |
 
-**Respiração azul de fábrica** = estado padrão do firmware *antes* de qualquer
-configuração USB. Uma vez enviado o report `0x04`, o mouse entra em
-"modo configurado": LED apagado, só acende brevemente ao trocar de estágio
-pelo botão físico de DPI.
+> Usar `0x00` ao querer iluminação contínua via `0x05` (evita flash de confirmação).
 
-**Investigação de parâmetros adicionais (2026-06-12) — fases 4-5:**
+### Checksum
 
-Testados com scripts `diag-anim-params.js` e `diag-anim-params2.js`:
-
-| Bytes testados | Efeito sobre LED |
-|---------------|-----------------|
-| Byte 5 (`0x3f`) — variado de `0x00` a `0xff` | Sem efeito na duração ou comportamento |
-| Bytes 14-15 | Sem efeito |
-| Bytes 22-23 | Sem efeito na contagem de blinks |
-| Bloco 7 (43-45) zerado ou variado | Sem efeito |
-| Bloco 8 (46-48) zerado | Sem efeito |
-| Bloco7[0] como contador de blinks (`0x01`, `0x05`) | Sempre 3 blinks — ignorado |
-| Estágio ativo como contador de blinks (1, 3, 5) | Sempre 3 blinks — não relacionado |
-| RGB `0x08` vs `0xff` | **Brilho percebido muda** — `0x08` visivelmente mais fraco ✓ |
-
-**Mapa final do que controlamos via USB (atualizado 2026-06-12):**
-
-Via report `0x04`:
-- ✅ Cor por estágio (blocos 1-6, offsets 25-42)
-- ✅ Brilho (via magnitude dos valores RGB)
-- ✅ Animação one-shot ao receber config (byte 49: 0x00=off, 0x01=blink, 0x02=flash 3s)
-
-Via report `0x05` (depois de `0x04`):
-- ✅ Modo de animação contínua (Static/Breathing/Neon/ColorBreathing/StaticDpi/BreathingDpi)
-- ✅ Cor global para modos não-DPI (Static, Breathing, Neon, ColorBreathing)
-- ✅ Velocidade da animação (ledSpeed 1=lento … 5=rápido)
-- ✅ Para modos DPI (StaticDpi/BreathingDpi): cor vem dos blocos de `0x04`
-
----
-
-### 9. BREAKTHROUGH — report `0x05` funciona! (2026-06-12)
-
-`scripts/diag-report03-05.js` — teste de `0x05` APÓS inicialização com `0x04`.
-
-**Contexto**: todos os testes anteriores de `0x05` foram feitos antes de enviar
-`0x04` (mouse em estado de fábrica). O firmware exige que `0x04` seja recebido
-primeiro para aceitar comandos `0x05`.
-
-**Modo base 0x04**: todos os blocos = azul (`0x00 0x00 0xff`), byte49=`0x02` (flash).
-Após o flash azul (3s), `0x05` enviado imediatamente para cada modo:
-
-| Modo | Byte 3 | Comportamento observado |
-|------|--------|------------------------|
-| Static | `0x10` | LED verde **sólido e contínuo** ✓ |
-| Breathing | `0x20` | **Breathing verde contínuo** — não para ✓ |
-| Neon | `0x30` | **Troca de cores com fade rápido, contínuo** ✓ |
-| ColorBreathing | `0x40` | **Breathing com mudança de cor, contínuo** ✓ |
-| StaticDpi | `0x50` | LED **azul sólido** (cor do `0x04`), DPI button não mudava cor* ✓ |
-| BreathingDpi | `0x60` | Breathing azul; botão DPI **reseta** a animação mas mantém azul* ✓ |
-
-*Azul em todos os estágios porque o `0x04` de inicialização tinha todos os
-blocos iguais. Com paleta diversa por estágio, DPI button deve mudar a cor.
-
-**ledSpeed** (`0x05` byte 4 = `6 - userSpeed`):
-- `ledSpeed=1` (hardware=5) → **visivelmente mais lento** ✓
-- `ledSpeed=5` (hardware=1) → **visivelmente mais rápido** ✓
-
-**Report `0x03`** (mesmo formato 56-byte que `0x04`, ID=`0x03`):
-- Mouse ficou em breathing azul (estado do BreathingDpi anterior mantido)
-- `0x03` não produz efeito visual distinto — pode ser ignorado ou alias de `0x04`
-
-**Relatórios de entrada (interrupt endpoint 0x83) — confirmados 2026-06-13:**
-
-| Pacote (hex) | Significado |
-|---|---|
-| `03 55 40 01 <nivel>` | Nível de bateria (0-100) |
-| `03 55 10 <stage> 00` | Botão físico DPI pressionado — stage 1-6 (1-indexed) |
-
-Todos os pacotes compartilham o prefixo `03 55`. Byte 2 discrimina o tipo:
-- `0x40` = bateria (byte 4 = nível)
-- `0x10` = mudança de estágio DPI (byte 3 = estágio 1-6)
-
----
-
-**Estrutura confirmada do payload `0x05` (15 bytes):**
 ```
-[0]  = 0x05  (Report ID)
-[1]  = 0x0f  (len=15)
-[2]  = 0x01  (fixo)
-[3]  = lightMode  (0x00/0x10/0x20/0x30/0x40/0x50/0x60)
-[4]  = (6 - ledSpeed) & 0x0f  (hardware speed invertida)
-[5]  = 0xa8  (deepSleep = 10min)
-[6]  = R
-[7]  = G
-[8]  = B
-[9]  = 0x01  (sleep = 0.5min)
-[10] = 0x04  (keyResponse = 8ms)
-[11] = count(ch ≥ 0x64) + (1 se BreathingDpi)
-[12] = checksum (sum bytes 3-10, & 0xff)
-[13] = 0x00  (padding wireless)
-[14] = 0x00  (padding wireless)
+checksum = sum(bytes[3..49]) & 0xffff
+bytes[50] = (checksum >> 8) & 0xff   // high byte
+bytes[51] =  checksum & 0xff         // low byte
 ```
 
-**Fluxo obrigatório para animação contínua:**
+### Payload de exemplo
+
+Estágio ativo 2, paleta padrão, sem animação one-shot:
 ```
-1. setDpi(DpiBuilder)      → report 0x04 (DPI + cores por estágio, byte49=0x00)
-2. setUserPrefs(UserPrefs) → report 0x05 (modo animação + cor global + speed)
+04 38 01 00 01 3f 20 20 12 25 38 4b 75 81 00 00
+00 00 00 00 00 01 00 00 02 ff 00 00 00 ff 00 00
+00 ff ff ff 00 00 ff ff ff 00 ff ff 40 00 ff ff
+ff 00 0f 68 00 00 00 00
 ```
 
 ---
 
-### Conclusões confirmadas (2026-06-12)
+## 4. Report 0x05 — Modo de Animação
 
-1. **Report `0x04` controla o LED** — confirmado empiricamente. ✓
-2. **`buf[24]` (estágio ativo) determina qual bloco de cor é exibido.**
-   Mapeamento: estágio N → bloco N → offsets `25 + (N-1)*3` a `27 + (N-1)*3`.
-3. **Byte 49 do `0x04`** = animação one-shot (confirmação): `0x00`=off, `0x01`=blink, `0x02`=flash sólido 3s.
-4. **Report `0x05` (UserPreferencesBuilder) FUNCIONA** para animações contínuas,
-   mas precisa ser enviado APÓS `0x04`. ✓
-5. Modos DPI (`0x50`/`0x60`) usam as cores por estágio do `0x04`; modos globais
-   (`0x10`–`0x40`) usam o RGB do próprio `0x05`.
-6. `ledSpeed` é real e funcional (usuário 1-5 → hardware 5-1 invertido).
+Report de **15 bytes** (`0x0f`). Controla o modo de iluminação **contínuo** (não apaga após a animação).
 
-**Comando**: `npm run diag-rgb-safe` (fechar o app antes).
+**Pré-requisito obrigatório**: o Report `0x04` deve ser enviado **antes** deste. O firmware ignora `0x05` se `0x04` nunca chegou.
+
+### Layout completo
+
+```
+Byte  Valor        Descrição
+──────────────────────────────────────────────────────────────────
+ 00   0x05         Report ID
+ 01   0x0f         Tamanho (15)
+ 02   0x01         Fixo
+ 03   lightMode    Modo de iluminação (ver tabela)
+ 04   ledSpeed     Velocidade — hardware usa escala invertida: 6 - uiSpeed
+                   UI 1 (lento) → hw 5 · UI 5 (rápido) → hw 1
+ 05   0xa8         deepSleepTime = 10 min (único valor confirmado funcional)
+ 06   R            Cor global — vermelho
+ 07   G            Cor global — verde
+ 08   B            Cor global — azul
+ 09   0x01         sleepTime = 0.5 min (único valor confirmado funcional)
+ 10   keyResponse  Debounce em ms (4–50 ms, apenas valores pares)
+ 11   count        count(ch ≥ 0x64) + 1 se BreathingDpi
+ 12   checksum     sum(bytes[3..10]) & 0xff
+ 13   0x00         Padding wireless
+ 14   0x00         Padding wireless
+```
+
+### Modos de iluminação (byte 3)
+
+| Valor | Modo | Comportamento |
+|-------|------|---------------|
+| `0x00` | Off | LED apagado |
+| `0x10` | Static | Cor sólida fixa (usa RGB bytes 6–8) |
+| `0x20` | Breathing | Pulsa a cor global (bytes 6–8) |
+| `0x30` | Neon | Cicla o arco-íris com fade |
+| `0x40` | ColorBreathing | Breathing mudando de cor |
+| `0x50` | StaticDpi | Cor fixa do estágio ativo (vem do `0x04`) |
+| `0x60` | BreathingDpi | Breathing na cor do estágio ativo (vem do `0x04`) |
+
+> Modos `Static` / `Breathing` / `Neon` / `ColorBreathing` usam o RGB dos bytes 6–8.
+> Modos `StaticDpi` / `BreathingDpi` ignoram bytes 6–8 e usam as cores dos estágios do `0x04`.
+
+### Checksum
+
+```
+checksum = sum(bytes[3..10]) & 0xff
+bytes[12] = checksum
+```
+
+> `deepSleepTime` e `sleepTime` estão hardcoded no código (`0xa8` = 10 min, `0x01` = 0.5 min). Outros valores quebraram os modos de iluminação nos testes — **não alterar**.
 
 ---
 
-## Regras de segurança para próximos testes
+## 5. Report 0x06 — Polling Rate
 
-1. **Nunca enviar um Report ID que não seja `0x04` ou `0x06`** sem motivo
-   muito bem justificado — esses dois são os únicos confirmados seguros.
-2. **Sempre recalcular o checksum** (offsets 50-51, uint16BE, soma de
-   bytes 3-49) ao modificar qualquer byte do payload `0x04`.
-3. **Variações mínimas**: ao testar uma hipótese, mude o menor número de
-   bytes possível a partir de um payload conhecido-bom.
-4. **Tenha o procedimento de repareamento sempre à mão**: desligar o mouse,
-   religar, segurar o botão de DPI (embaixo do mouse) até repareear.
-5. **Teste via cabo quando possível**: `idProduct=0xfa55` (wired) é mais
-   resiliente — se algo der errado, não perde pareamento RF (mas pode
-   persistir configuração ruim na EEPROM; use com cautela também).
-6. Se algo causar o mouse a desconectar/parar de responder: **não pânico**.
-   Hardware é resiliente (já provamos). Documentar o payload exato enviado
-   antes de tentar recuperar.
+Report de **9 bytes**. Formato:
+
+```
+06 09 01 [rate] [checksum] 00 00 00 00
+```
+
+| Taxa | Byte `[rate]` | Checksum (`0xff - rate`) |
+|------|--------------|--------------------------|
+| 125 Hz | `0x08` | `0xf7` |
+| 250 Hz | `0x04` | `0xfb` |
+| 500 Hz | `0x02` | `0xfd` |
+| 1000 Hz | `0x01` | `0xfe` |
+
+Checksum = complemento de um: `checksum = 0xff - rate`.
 
 ---
 
+## 6. Eventos de Entrada (Interrupt 0x83)
+
+O mouse envia pacotes espontâneos pelo endpoint `0x83`. Todos têm o prefixo `03 55`.
+
+| Prefixo | Byte [2] | Significado | Dados |
+|---------|----------|-------------|-------|
+| `03 55` | `0x40` | Nível de bateria | byte[4] = 0–100 |
+| `03 55` | `0x10` | Botão DPI pressionado | byte[3] = estágio 1–6 |
+
+Exemplo de pacote de bateria: `03 55 40 01 64` → 100%.
+Exemplo de mudança de DPI: `03 55 10 03 00` → estágio 3.
+
+---
+
+## 7. Fluxo Obrigatório
+
+Para configurar DPI + iluminação contínua, a ordem é:
+
+```
+1. DpiBuilder      → report 0x04   (DPI + cores por estágio)
+                                    ↓ aguardar 300ms
+2. UserPrefsBuilder → report 0x05  (modo de animação + cor global + velocidade)
+```
+
+O delay de 300ms entre `0x04` e `0x05` é necessário — o firmware precisa processar o primeiro antes de aceitar o segundo.
+
+Para polling rate: `PollingRateBuilder` → report `0x06` (pode ser enviado separadamente).
+
+Para mapeamento de botões: `MacrosBuilder` → report `0x04` com payload de macro (via `setMacro()`).
+
+---
+
+## 8. Segurança
+
+### Report IDs perigosos
+
+| Report ID | Status | Motivo |
+|-----------|--------|--------|
+| `0x04` | ✅ Seguro | DPI, cores, confirmado extensivamente |
+| `0x05` | ✅ Seguro | Animação contínua, após `0x04` |
+| `0x06` | ✅ Seguro | Polling rate, confirmado |
+| `0x0b` | ⛔ PERIGOSO | Causou despareamento do dongle 2.4 GHz |
+| demais | ⚠️ Desconhecido | Nunca testados — não usar sem necessidade |
+
+### Regras de ouro
+
+1. **Nunca usar Report ID diferente de `0x04`, `0x05` ou `0x06`** sem aprovação explícita.
+2. **Sempre recalcular o checksum** ao modificar qualquer byte.
+3. **Variações mínimas**: ao testar uma hipótese, mudar o menor número de bytes possível a partir de um payload já confirmado.
+4. **Nunca mudar `wIndex`** — apenas `wIndex=2` é válido.
+5. **Testar via cabo** (`0xfa55`) quando possível: se algo der errado, não perde o pareamento RF.
+
+### Procedimento de recuperação (despareamento)
+
+Se o dongle 2.4 GHz perder o pareamento:
+
+1. Desligue o mouse (chave física).
+2. Religue.
+3. Segure o **botão de DPI** (parte inferior do mouse) até o LED do dongle parar de piscar.
+
+O hardware não sofre dano permanente — o firmware do mouse é resiliente.
+
+---
+
+## 9. Histórico da Investigação
+
+Registro cronológico de como chegamos aos resultados acima.
+
+### Estado inicial
+
+O driver vendorizado (`src/main/driver/`, fork de HarukaYamamoto0) tinha um `UserPreferencesBuilder` (report `0x05`, 15 bytes) que não produzia efeito no LED — o mouse ficava sempre em "respiração azul" de fábrica. DPI, polling rate e macro funcionavam perfeitamente (mesma camada de transporte, builders diferentes).
+
+### Fase 1 — Diagnóstico de `wIndex`
+
+Testamos `wIndex=0,1,2` com o payload do `UserPreferencesBuilder`:
+- `wIndex=0` e `1` → `LIBUSB_ERROR_IO`.
+- `wIndex=2` → retorno OK, sem efeito no LED.
+
+Confirmou que `wIndex=2` é a interface correta.
+
+### Fase 2 — Varredura de Report IDs
+
+Mantendo `wIndex=2`, variamos o Report ID de `0x01` a `0x0c`:
+- `0x01`–`0x0a`, `0x0c`: sem efeito.
+- **`0x0b`**: LED ficou verde por um momento e depois apagou completamente.
+
+### Incidente de despareamento
+
+Continuando a explorar `0x0b` e outros IDs (payload Static+Vermelho, IDs `0x01`–`0x0f`), o dongle 2.4 GHz perdeu o pareamento. Diagnóstico: dongle ainda visível via `lsusb` (hardware intacto), mouse respondia via cabo (firmware intacto). Recuperação bem-sucedida pelo procedimento do manual (segurar botão DPI).
+
+**Conclusão**: Report ID `0x0b` parece ser um comando de sistema (ex: "reset RF channel" ou "factory pairing reset"), não de configuração persistente.
+
+### Fase 3 — Pesquisa externa (libratbag)
+
+Encontramos [libratbag#1807](https://github.com/libratbag/libratbag/issues/1807), reverse-engineering independente via Wireshark + software oficial Windows. Confirmou que:
+
+- Report `0x04` (56 bytes) controla DPI **e** RGB por zonas (bytes 20–30 no issue, que correspondem aos offsets 25–42 no nosso builder).
+- Report `0x06` (9 bytes) controla polling rate.
+
+### Fase 4 — Confirmação do layout RGB (script diag-rgb-safe.js)
+
+Variamos cores dos blocos no report `0x04`:
+- Bloco 1 (offsets 25–27): alterado para roxo — sem efeito visível (estágio ativo era 2).
+- **Bloco 2 (offsets 28–30): alterado para turquesa `5be3d2` → LED exibiu cor turquesa. CONFIRMADO.**
+
+Prova definitiva: bloco N → cor do estágio N. Offset = `25 + (N-1)*3`.
+
+### Fase 5 — Byte 49 e modos one-shot (script diag-rgb-mode.js)
+
+Variação de byte 49 (`0x00`–`0x08` e valores altos):
+- `0x00`: apaga.
+- `0x01`: ~3 piscadas, depois apagado.
+- `0x02`: sólido ~3s, depois apagado.
+- demais: apagado.
+
+Conclusão: byte 49 controla apenas a animação de confirmação — nenhum valor produz efeito contínuo.
+
+Parâmetros adicionais testados (bytes 5, 14, 15, 22, 23, blocos 7–8): sem efeito perceptível.
+
+### Fase 6 — Breakthrough: report `0x05` funciona (script diag-report03-05.js)
+
+Teste decisivo: enviar `0x04` **primeiro**, depois `0x05` imediatamente.
+
+Resultado: todos os modos (`0x10` Static, `0x20` Breathing, `0x30` Neon, `0x40` ColorBreathing, `0x50` StaticDpi, `0x60` BreathingDpi) funcionaram com animação contínua.
+
+`ledSpeed` confirmado invertido: UI 1 (lento) → hardware 5, UI 5 (rápido) → hardware 1.
+
+Causa raiz do problema original: `0x05` era enviado antes de `0x04`. O firmware exige a inicialização via `0x04` antes de aceitar comandos de animação.
+
+---
 
 ## Referências
 
-- Driver base: https://github.com/HarukaYamamoto0/attack-shark-x11-driver (MIT)
-- Fork com correções de luz (não resolveu): https://github.com/dressedinblack5/attack-shark-x11-electron (MIT)
-- Reverse engineering independente: https://github.com/libratbag/libratbag/issues/1807
-- Manual oficial (procedimento de pareamento): https://manuals.plus/m/b7d8ea1afd8e24ebb87e01493bba8a35c7ef27cd3551737ffe4a9a2e81f1818c
+- Driver base: [HarukaYamamoto0/attack-shark-x11-driver](https://github.com/HarukaYamamoto0/attack-shark-x11-driver) (MIT)
+- Fork com correções: [dressedinblack5/attack-shark-x11-electron](https://github.com/dressedinblack5/attack-shark-x11-electron) (MIT)
+- Reverse engineering independente: [libratbag/libratbag#1807](https://github.com/libratbag/libratbag/issues/1807)
+- Manual oficial (procedimento de pareamento): [manuals.plus](https://manuals.plus/m/b7d8ea1afd8e24ebb87e01493bba8a35c7ef27cd3551737ffe4a9a2e81f1818c)
