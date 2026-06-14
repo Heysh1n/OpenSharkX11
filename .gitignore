@@ -6,3 +6,4 @@ app.asar.unpacked/
 *.pkg.tar.zst
 src/main/driver/node_modules/
 .DS_Store
+local/
