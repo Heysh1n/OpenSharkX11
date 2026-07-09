@@ -30,6 +30,7 @@ export const NAV = [
   {id:'dpi',      lbl:'DPI',     ico:'dpi'},
   {id:'lighting', lbl:'LUZ',     ico:'light'},
   {id:'buttons',  lbl:'BOTÕES',  ico:'buttons'},
+  {id:'macro',    lbl:'MACRO',   ico:'perf'},
   {id:'perf',     lbl:'PERF',    ico:'perf'},
   {id:'profiles', lbl:'PERFIS',  ico:'profiles'},
   {id:'settings', lbl:'CONFIG',  ico:'settings'},
@@ -93,5 +94,5 @@ export const BOOT_LOG = [
 
 export const SECTION_IDX = {
   console:'00 / OVERVIEW', dpi:'01 / SENSOR', lighting:'02 / RGB', buttons:'03 / REMAP',
-  perf:'04 / TIMING', profiles:'05 / STATE', settings:'06 / SYSTEM',
+  macro:'04 / MACRO', perf:'05 / TIMING', profiles:'06 / STATE', settings:'07 / SYSTEM',
 }

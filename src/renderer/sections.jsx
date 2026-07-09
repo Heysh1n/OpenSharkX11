@@ -1,7 +1,7 @@
 /* ============ sections ============ */
 import React, { useState, useEffect, useRef } from 'react'
 import { Ico, I, MODES, SWATCHES, BUTTONS, NATIVE_ACTIONS, SHORTCUT_PRESETS, POLLING, DPI_MAX, USB_LED_COLOR, USB_CHARGED_COLOR } from './data.jsx'
-import { tModeDesc } from './i18n.jsx'
+import { tModeDesc, LANGS, ACCENTS } from './i18n.jsx'
 import { MouseStage, MouseFrame } from './mouse.jsx'
 
 /* ---- shared ---- */
@@ -324,8 +324,38 @@ export function ButtonsSection({ctx}){
   const goTab = (tb)=>{ setTab(tb) }
   const dispBind = (b)=>{ if(!b) return '—'
     if(b.type==='shortcut') return [...(b.mods||[]),b.key].filter(Boolean).join(' + ')||'—'
+    if(b.type==='custom_macro') { const m = state.macroLibrary?.find(x=>x.id===b.macroId); return m ? 'Macro: '+m.name : 'Macro' }
     return tAct(b.action) }
-  const typeTag = (ty)=> (ty==='shortcut'?t('bt.tab.shortcut'):t('bt.tab.native')).toUpperCase()
+  const typeTag = (ty)=> (ty==='shortcut'?t('bt.tab.shortcut'):ty==='custom_macro'?'MACRO':t('bt.tab.native')).toUpperCase()
+
+  const setBindMacro = (macId) => {
+    let newBindings = {...state.bindings}
+    let resetCount = 0
+    for (const k in newBindings) {
+      if (k !== sel && newBindings[k].type === 'custom_macro') {
+        const defaultAction = BUTTONS.find(b=>b.id===k)?.def || 'Clique Esquerdo'
+        newBindings[k] = {type:'native', action: defaultAction}
+        resetCount++
+      }
+    }
+    newBindings[sel] = {type:'custom_macro', macroId: macId}
+    
+    const macData = state.macroLibrary?.find(m=>m.id===macId)
+    const btnEnumMap = {left:0, right:1, middle:2, forward:3, backward:4, dpi:5}
+    const macroPatch = macData ? {
+      enabled: true,
+      targetButton: btnEnumMap[sel] ?? 4,
+      mode: macData.mode,
+      repeat: macData.repeat,
+      events: macData.events
+    } : {enabled: false}
+
+    if(resetCount > 0 && ctx.showToast) {
+      ctx.showToast('Предыдущий макрос сброшен (аппаратный лимит)', true)
+    }
+
+    ctx.set({bindings: newBindings, customMacro: {...state.customMacro, ...macroPatch}})
+  }
 
   return (
     <div className="cockpit fade-in">
@@ -362,7 +392,7 @@ export function ButtonsSection({ctx}){
             <span style={{fontSize:'15px',fontFamily:'Archivo',fontWeight:700,color:'var(--live)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{dispBind(bd)}</span>
             <button className="btn sm ghost" onClick={()=>setBind({type:'native',action:selBtn.def})}><Ico n="reset"/>{t('bt.default')}</button>
           </div>
-          <Seg live options={[{v:'native',l:t('bt.tab.native')},{v:'shortcut',l:t('bt.tab.shortcut')}]} value={tab} onChange={goTab}/>
+          <Seg live options={[{v:'native',l:t('bt.tab.native')},{v:'shortcut',l:t('bt.tab.shortcut')},{v:'custom_macro',l:t('nav.macro')}]} value={tab} onChange={goTab}/>
 
           {tab==='native' && (
             <div className="act-scroll stack" style={{gap:'14px',marginTop:'14px'}}>
@@ -389,6 +419,20 @@ export function ButtonsSection({ctx}){
                   const on=bd.type==='shortcut'&&[...(bd.mods||[]),bd.key].join(' + ')===lbl
                   return <button key={i} className={'act'+(on?' on':'')} onClick={()=>setBind({type:'shortcut',...p})}>{lbl}</button>
                 })}
+              </div>
+            </div>
+          )}
+
+          {tab==='custom_macro' && (
+            <div style={{marginTop:'14px'}}>
+              <div className="tiny" style={{marginBottom:'10px'}}>{t('mc.lib.hint')}</div>
+              <div className="prof-list" style={{maxHeight:'200px',overflowY:'auto'}}>
+                {state.macroLibrary?.length ? state.macroLibrary.map(mac=>(
+                  <div key={mac.id} className={'prof'+(bd.macroId===mac.id?' sel':'')} onClick={()=>setBindMacro(mac.id)} style={{cursor:'pointer'}}>
+                    <div className="pdot"></div>
+                    <div className="pn">{mac.name}</div>
+                  </div>
+                )) : <div className="muted" style={{fontSize:'11px'}}>{t('mc.lib.empty')}</div>}
               </div>
             </div>
           )}
@@ -550,17 +594,255 @@ export function ProfilesSection({ctx}){
   )
 }
 
+/* ===================== MACRO EDITOR ===================== */
+const HID_MAP = (()=>{
+  const m = {Enter:0x28,Escape:0x29,Backspace:0x2a,Tab:0x2b,Space:0x2c,Minus:0x2d,Equal:0x2e,
+    BracketLeft:0x2f,BracketRight:0x30,Backslash:0x31,Semicolon:0x33,Quote:0x34,Backquote:0x35,
+    Comma:0x36,Period:0x37,Slash:0x38,CapsLock:0x39,Delete:0x4c,Home:0x4a,End:0x4d,
+    PageUp:0x4b,PageDown:0x4e,ArrowRight:0x4f,ArrowLeft:0x50,ArrowDown:0x51,ArrowUp:0x52}
+  for(let i=0;i<26;i++) m['Key'+String.fromCharCode(65+i)]=0x04+i
+  for(let i=1;i<=9;i++) m['Digit'+i]=0x1e+i-1; m.Digit0=0x27
+  for(let i=1;i<=12;i++) m['F'+i]=0x3a+i-1
+  return m
+})()
+// Firmware mouse button codes (MouseMacroEvent enum)
+const MOUSE_CODES = {
+  LEFT:    0xf1,
+  RIGHT:   0xf2,
+  MIDDLE:  0xf3,
+  BACK:    0xf4,
+  FORWARD: 0xf5,
+}
+const MOUSE_BTNS = [
+  {code: MOUSE_CODES.LEFT,    label: 'LMB'},
+  {code: MOUSE_CODES.RIGHT,   label: 'RMB'},
+  {code: MOUSE_CODES.MIDDLE,  label: 'MMB'},
+  {code: MOUSE_CODES.BACK,    label: 'Back'},
+  {code: MOUSE_CODES.FORWARD, label: 'Fwd'},
+]
+// Reverse map: HID code → display name (keyboard + mouse)
+const HID_REV = (() => {
+  const m = Object.fromEntries(Object.entries(HID_MAP).map(([k,v])=>[v,k.replace(/^Key|^Digit/,'')]))
+  m[0xf1] = '🖱 LMB'
+  m[0xf2] = '🖱 RMB'
+  m[0xf3] = '🖱 MMB'
+  m[0xf4] = '🖱 Back'
+  m[0xf5] = '🖱 Fwd'
+  return m
+})()
+
+const MACRO_MODES = (t) => [
+  {v:0, l:t('mc.mod.nplay')},
+  {v:1, l:t('mc.mod.untilkey')},
+  {v:2, l:t('mc.mod.hold')},
+]
+const TARGET_BTNS = [
+  {v:0, l:'Left'}, {v:1, l:'Right'}, {v:2, l:'Middle'},
+  {v:3, l:'Forward'}, {v:4, l:'Back'}, {v:5, l:'DPI'},
+]
+
+export function MacroSection({ctx}){
+  const {state, set, t, connected} = ctx
+  const macros = state.macroLibrary || []
+  const [selId, setSelId] = useState(null)
+  const m = macros.find(mac=>mac.id===selId) || null
+  const [recording, setRecording] = useState(false)
+  const lastTimeRef = useRef(0)
+
+  const saveToLib = async (patch) => {
+    if(!m) return
+    const updated = {...m, ...patch}
+    await window.api.macroSave(updated)
+    const list = await window.api.macrosList()
+    set({macroLibrary: list})
+  }
+
+  const createMacro = async () => {
+    const id = Date.now().toString()
+    await window.api.macroSave({id, name:t('mc.newname'), events:[], mode:0, repeat:1})
+    const list = await window.api.macrosList()
+    set({macroLibrary: list})
+    setSelId(id)
+  }
+
+  const deleteMacro = async (e, id) => {
+    e.stopPropagation()
+    await window.api.macroDelete(id)
+    const list = await window.api.macrosList()
+    set({macroLibrary: list})
+    if(selId===id) setSelId(null)
+  }
+
+  const addEvent = (key, delay, release) => {
+    if(!m) return
+    saveToLib({events:[...m.events, {key, delay, release}]})
+  }
+
+  const addMouseClick = (code) => {
+    if(!m) return
+    const baseDelay = 50
+    const events = [
+      ...m.events,
+      {key: code, delay: baseDelay, release: false},
+      {key: code, delay: baseDelay, release: true},
+    ]
+    saveToLib({events})
+  }
+
+  // record keydown / keyup
+  useEffect(()=>{
+    if(!recording || !m) return
+    lastTimeRef.current = Date.now()
+    const handler = (e) => {
+      e.preventDefault(); e.stopPropagation()
+      if(['Control','Alt','Shift','Meta','OS'].includes(e.key)) return
+      const hid = HID_MAP[e.code]
+      if(!hid) return
+      const now = Date.now()
+      const delay = Math.max(1, now - lastTimeRef.current)
+      lastTimeRef.current = now
+      const release = e.type === 'keyup'
+      addEvent(hid, delay, release)
+    }
+    window.addEventListener('keydown', handler, true)
+    window.addEventListener('keyup', handler, true)
+    return ()=>{
+      window.removeEventListener('keydown', handler, true)
+      window.removeEventListener('keyup', handler, true)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[recording, m?.events?.length])
+
+  const removeEvent = (idx)=>{
+    if(!m) return
+    const ev = [...m.events]; ev.splice(idx,1)
+    saveToLib({events:ev})
+  }
+  const setDelay = (idx,val)=>{
+    if(!m) return
+    const ev = [...m.events]; ev[idx] = {...ev[idx], delay:Math.max(1,+val||1)}
+    saveToLib({events:ev})
+  }
+  const setKey = (idx, key)=>{
+    if(!m) return
+    const ev = [...m.events]; ev[idx] = {...ev[idx], key:parseInt(key)}
+    saveToLib({events:ev})
+  }
+
+  const clearAll = ()=> { if(m) saveToLib({events:[]}) }
+
+  return (
+    <div className="fade-in" style={{display:'flex',gap:'20px',height:'100%'}}>
+      {/* ── COL 1: Library List ───────────────────────── */}
+      <div className="col" style={{flex:'0 0 220px'}}>
+        <Panel label={t('mc.lib')} idx="01" right={macros.length}>
+          <div className="prof-list" style={{maxHeight:'380px',overflowY:'auto',marginBottom:'10px'}}>
+            {macros.map(mac=>(
+              <div key={mac.id} className={'prof'+(selId===mac.id?' sel':'')} onClick={()=>setSelId(mac.id)} style={{cursor:'pointer'}}>
+                <div className="pdot"></div>
+                <div style={{flex:1}}>
+                  <input className="name-input" style={{width:'100%',background:'transparent',border:'none',color:'inherit'}}
+                         value={mac.name}
+                         onChange={e=>{
+                           const updated = {...mac, name:e.target.value};
+                           window.api.macroSave(updated).then(()=>{
+                             window.api.macrosList().then(list=>set({macroLibrary:list}))
+                           })
+                         }}
+                         onClick={e=>e.stopPropagation()} />
+                </div>
+                <button className="btn sm ghost danger" onClick={e=>deleteMacro(e, mac.id)}><Ico n="trash"/></button>
+              </div>
+            ))}
+          </div>
+          <button className="btn ghost" onClick={createMacro} style={{width:'100%'}}>{t('mc.new')}</button>
+        </Panel>
+      </div>
+
+      {/* ── COL 2: Timeline ────────────────────────────── */}
+      <div className="col" style={{flex:'1 1 0'}}>
+        <Panel label={t('mc.events')} idx="02" right={m ? m.events.length+' '+t('mc.steps') : ''}>
+          {!m ? (
+            <div className="muted" style={{fontSize:'11px',padding:'16px 0',textAlign:'center'}}>{t('mc.select')}</div>
+          ) : m.events.length===0 ? (
+            <div className="muted" style={{fontSize:'11px',padding:'16px 0',textAlign:'center'}}>
+              {recording ? t('mc.recordhint') : t('mc.noevents')}
+            </div>
+          ) : (
+            <div className="macro-list">
+              {m.events.map((ev,i)=>(
+                <div key={i} className="macro-ev">
+                  <span className="macro-idx">{String(i+1).padStart(2,'0')}</span>
+                  <span className={'macro-type'+(ev.release?' up':' dn')}>{ev.release?t('mc.up'):t('mc.dn')}</span>
+                  <select className="macro-delay" style={{width:'auto',flex:1}} value={ev.key} onChange={e=>setKey(i, e.target.value)}>
+                    {Object.entries(HID_REV).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+                  </select>
+                  <input className="macro-delay" type="number" min="1" max="9999"
+                    value={ev.delay} onChange={e=> setDelay(i,e.target.value)}/>
+                  <span className="macro-ms">{t('mc.ms')}</span>
+                  <button className="btn sm ghost danger macro-del" onClick={()=> removeEvent(i)}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      {/* ── COL 3: Settings & Record ─────────────────── */}
+      <div className="col" style={{flex:'0 0 240px'}}>
+        <Panel label={t('mc.settings')} idx="03">
+          {m ? (
+            <>
+              <div className="row" style={{marginBottom:'12px'}}>
+                <span className="k">{t('mc.mode')}</span>
+                <Seg options={MACRO_MODES(t)} value={m.mode} onChange={v=> saveToLib({mode:v})}/>
+              </div>
+              {m.mode===0 && (
+                <div className="row" style={{marginBottom:'12px'}}>
+                  <span className="k">{t('mc.repeat')}</span>
+                  <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                    <button className="btn sm" onClick={()=> saveToLib({repeat:Math.max(1,m.repeat-1)})}>−</button>
+                    <span className="v" style={{minWidth:'32px',textAlign:'center',fontWeight:600}}>{m.repeat}</span>
+                    <button className="btn sm" onClick={()=> saveToLib({repeat:Math.min(255,m.repeat+1)})}>+</button>
+                  </div>
+                </div>
+              )}
+              <div className="divider"></div>
+              <div style={{display:'flex',gap:'8px',marginBottom:'12px'}}>
+                <button className={'btn'+(recording?' primary':'')} onClick={()=> setRecording(r=>!r)} style={{flex:1}}>
+                  {recording ? t('mc.stop') : t('mc.record')}
+                </button>
+                <button className="btn ghost danger" onClick={clearAll} disabled={m.events.length===0}>{t('mc.clear')}</button>
+              </div>
+              <div className="tiny" style={{margin:'10px 0 8px'}}>{t('mc.quickadd')}</div>
+              <div className="macro-mouse-grid">
+                {MOUSE_BTNS.map(mb=>(
+                  <button key={mb.code} className="btn sm" onClick={()=> addMouseClick(mb.code)}>
+                    🖱 {mb.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="muted" style={{fontSize:'11px',textAlign:'center'}}>{t('mc.nomacro')}</div>
+          )}
+        </Panel>
+      </div>
+    </div>
+  )
+}
+
 /* ===================== SETTINGS ===================== */
 export function SettingsSection({ctx}){
-  const {t, lang, setLang, accent, setAccent, theme, setTheme} = ctx
-  const reset = ()=>{ setLang('pt'); setAccent('cyan'); setTheme('dark') }
+  const {t, lang, setLang, accent, setAccent, theme, setTheme, customColor, setCustomColor} = ctx
+  const reset = ()=>{ setLang('en'); setAccent('cyan'); setTheme('dark') }
   return (
     <div className="fade-in two-col">
       <div className="col">
         <Panel label={t('st.language')} idx="01" right={<span dangerouslySetInnerHTML={{__html:I.globe}} style={{width:14,height:14,display:'inline-block'}}/>}>
           <div className="tiny" style={{marginBottom:'10px'}}>{t('st.language.d')}</div>
           <div className="lang-grid">
-            {[{id:'pt', label:'Português', tag:'PT-BR'},{id:'en', label:'English', tag:'EN'},{id:'zh', label:'中文', tag:'ZH'}].map(l=>(
+            {LANGS.map(l=>(
               <button key={l.id} className={'lang-card'+(lang===l.id?' on':'')} onClick={()=>setLang(l.id)}>
                 <span className="lang-tag">{l.tag}</span>
                 <span className="lang-name">{l.label}</span>
@@ -572,21 +854,25 @@ export function SettingsSection({ctx}){
         <Panel label={t('st.syscolor')} idx="02">
           <div className="tiny" style={{marginBottom:'12px'}}>{t('st.syscolor.d')}</div>
           <div className="accent-grid">
-            {[
-              {id:'cyan',c:'#2dd4ee',name:{pt:'Ciano',en:'Cyan',zh:'青色'}},
-              {id:'green',c:'#4ade80',name:{pt:'Verde',en:'Green',zh:'绿色'}},
-              {id:'lime',c:'#a3e635',name:{pt:'Lima',en:'Lime',zh:'青柠'}},
-              {id:'orange',c:'#f5a524',name:{pt:'Laranja',en:'Orange',zh:'橙色'}},
-              {id:'pink',c:'#ec4899',name:{pt:'Rosa',en:'Pink',zh:'粉色'}},
-              {id:'purple',c:'#a855f7',name:{pt:'Roxo',en:'Purple',zh:'紫色'}},
-              {id:'blue',c:'#3b82f6',name:{pt:'Azul',en:'Blue',zh:'蓝色'}},
-            ].map(a=>(
-              <button key={a.id} className={'accent'+(accent===a.id?' on':'')} onClick={()=>setAccent(a.id)} title={a.name[lang]}>
-                <span className="accent-sw" style={{background:a.c,boxShadow:'0 0 10px '+a.c}}></span>
-                <span className="accent-nm">{a.name[lang]}</span>
-              </button>
-            ))}
+            {ACCENTS.map(a=>{
+              const swColor = a.id==='custom' ? (customColor||'#ff6a00') : a.c
+              return (
+                <button key={a.id} className={'accent'+(accent===a.id?' on':'')} onClick={()=>setAccent(a.id)} title={a.name[lang]||a.name.en}>
+                  <span className="accent-sw" style={{background:swColor,boxShadow:'0 0 10px '+swColor}}></span>
+                  <span className="accent-nm">{a.name[lang]||a.name.en}</span>
+                </button>
+              )
+            })}
           </div>
+          {accent==='custom' && (
+            <div className="row" style={{marginTop:'14px'}}>
+              <span className="k">Custom color</span>
+              <label className="btn sm" style={{cursor:'pointer'}}>
+                <span style={{width:'13px',height:'13px',borderRadius:'4px',background:customColor,display:'inline-block'}}></span>{customColor.toUpperCase()}
+                <input type="color" value={customColor} onChange={e=>setCustomColor(e.target.value)} style={{width:0,height:0,opacity:0,position:'absolute'}}/>
+              </label>
+            </div>
+          )}
         </Panel>
       </div>
       <div className="col">

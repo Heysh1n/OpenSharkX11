@@ -6,7 +6,7 @@ import { I, Ico, NAV, DPI_DEFAULT, MODES, BUTTONS, BOOT_LOG, SECTION_IDX, USB_LE
 import { makeT, tAct as _tAct, ACCENTS } from './i18n.jsx'
 import {
   ConsoleSection, DpiSection, LightingSection, ButtonsSection,
-  PerfSection, ProfilesSection, SettingsSection
+  PerfSection, ProfilesSection, SettingsSection, MacroSection
 } from './sections.jsx'
 
 // ─── helpers de conversão ─────────────────────────────────────────────────────
@@ -123,6 +123,7 @@ function mainCfgToReact(cfg) {
           return [rxKey,{type:'native',action:'Clique Esquerdo'}]
         }))
       : Object.fromEntries(BUTTONS.map(b=>[b.id,{type:'native',action:b.def}])),
+    customMacro: cfg.customMacro ?? { enabled:false, targetButton:4, mode:0, repeat:1, events:[] },
   }
 }
 
@@ -145,6 +146,7 @@ function reactCfgToMain(state) {
     buttons: Object.fromEntries(
       Object.entries(state.bindings||{}).map(([k,b])=>[RX_TO_MAIN[k]||k, bindingToMain(b)])
     ),
+    customMacro: state.customMacro ?? undefined,
   }
 }
 
@@ -154,7 +156,7 @@ const api = window.api
 
 export default function App(){
   const [theme,setThemeSt] = useState(()=>loadLS('osx11_theme','dark'))
-  const [lang,setLangSt]   = useState(()=>loadLS('osx11_lang','pt'))
+  const [lang,setLangSt]   = useState(()=>loadLS('osx11_lang','en'))
   const [accent,setAccentSt]= useState(()=>loadLS('osx11_accent','cyan'))
   const [section,setSection] = useState('console')
 
@@ -162,6 +164,9 @@ export default function App(){
   const [connMode, setConnMode]     = useState(null)
   const [connecting, setConnecting] = useState(false)
   const [toastMsg, setToastMsg]     = useState(null)
+  const [updateAvailable, setUpdateAvailable] = useState(null)
+  const [updateProgress, setUpdateProgress]   = useState(0)
+  const [updateReady, setUpdateReady]         = useState(false)
   const appliedRef = useRef(null)
   const autoApplyTimerRef = useRef(null)
   const hwStageRef = useRef(false) // true when activeStage was set by hardware event
@@ -176,6 +181,8 @@ export default function App(){
       mode:'staticdpi', color:'#2dd4ee', speed:6, battOverride:true,
       polling:1000, debounce:4,
       bindings:Object.fromEntries(BUTTONS.map(b=>[b.id,{type:'native',action:b.def}])),
+      customMacro:{ enabled:false, targetButton:4, mode:0, repeat:1, events:[] },
+      macroLibrary: [],
       btnPos,
       profiles:[],
       log:BOOT_LOG,
@@ -198,16 +205,21 @@ export default function App(){
   const setLang  = (v)=>{ setLangSt(v);  localStorage.setItem('osx11_lang',JSON.stringify(v)); document.documentElement.lang=v }
   const setAccent= (v)=>{ setAccentSt(v);localStorage.setItem('osx11_accent',JSON.stringify(v)) }
 
+  const [customColor, setCustomColorSt] = useState(()=> loadLS('osx11_custom_color','#ff6a00'))
+  const setCustomColor = (v)=>{ setCustomColorSt(v); localStorage.setItem('osx11_custom_color',JSON.stringify(v)) }
+
   const t = useMemo(()=>makeT(lang),[lang])
 
   useEffect(()=>{ document.documentElement.setAttribute('data-theme',theme) },[theme])
   useEffect(()=>{
-    const c=(ACCENTS.find(a=>a.id===accent)||ACCENTS[0]).c
+    const c = accent==='custom'
+      ? customColor
+      : (ACCENTS.find(a=>a.id===accent)||ACCENTS[0]).c
     const r=document.documentElement.style
     r.setProperty('--live',c)
     r.setProperty('--live-soft',`color-mix(in oklab, ${c} 15%, transparent)`)
     r.setProperty('--live-line',`color-mix(in oklab, ${c} 50%, transparent)`)
-  },[accent])
+  },[accent,customColor])
   useEffect(()=>{ try{ localStorage.setItem('osx11_btnpos',JSON.stringify(state.btnPos)) }catch(_){} },[state.btnPos])
 
   // auto-apply — DPI muda instantaneamente; iluminação, remap e perf têm botão manual
@@ -254,6 +266,8 @@ export default function App(){
         if(batt!==null&&batt>=0) set({batt})
         const names = await api.profilesList()
         if(names) setState(s=>({...s, profiles: names.map(n=>({name:n,meta:''}))}))
+        const macros = await api.macrosList()
+        if(macros) setState(s=>({...s, macroLibrary: macros}))
 
       } else {
         addLog({t:ts(),tag:'USB',cls:'warn',m:res.error||'Mouse not found'})
@@ -293,6 +307,9 @@ export default function App(){
         showToast('Mouse disconnected', true)
       }),
       api.onTraySearch(()=>{ reconnectRef.current?.() }),
+      api.onUpdateAvailable((v)=> setUpdateAvailable(v)),
+      api.onUpdateProgress((p)=> setUpdateProgress(Math.round(p))),
+      api.onUpdateDownloaded(()=> setUpdateReady(true)),
     ]
 
     reconnect()
@@ -334,6 +351,22 @@ export default function App(){
   const applyLighting = ()=>applyConfig('lighting')
   const applyBindings = ()=>applyConfig('buttons')
   const applyPerf     = ()=>applyConfig('perf')
+
+  const applyMacro = async ()=>{
+    if(!api||!connected) return
+    try {
+      const patch = reactCfgToMain(state)
+      const newCfg = await api.applyConfig(patch)
+      const rx = mainCfgToReact(newCfg)
+      if(rx) appliedRef.current=rx
+      const btn = ['Left','Right','Middle','Forward','Back','DPI'][state.customMacro?.targetButton??4] || '?'
+      showToast(`Macro → ${btn} applied ✓`)
+      addLog({t:ts(),tag:'MCR',cls:'ok',m:`Macro (${state.customMacro?.events?.length||0} steps) bound to ${btn}`})
+    } catch(e){
+      showToast('Error: '+e.message, true)
+      addLog({t:ts(),tag:'MCR',cls:'err',m:e.message})
+    }
+  }
 
   const refreshProfiles = async ()=>{
     if(!api) return []
@@ -377,15 +410,15 @@ export default function App(){
   }
 
   const ctx = {state, set, mouseProps, t, lang, tAct:(s)=>_tAct(s,lang),
-    theme, setTheme, setLang, accent, setAccent,
-    connected, connecting, reconnect, applyLighting, applyBindings, applyPerf,
-    profileSave, profileLoad, profileDelete,
+    theme, setTheme, setLang, accent, setAccent, customColor, setCustomColor,
+    connected, connecting, reconnect, applyLighting, applyBindings, applyPerf, applyMacro,
+    profileSave, profileLoad, profileDelete, showToast,
     usbCharged, usbColor}
   const battColor = state.batt<15?'var(--danger)':state.batt<30?'var(--warn)':'var(--good)'
 
   const Section = {
     console:ConsoleSection, dpi:DpiSection, lighting:LightingSection, buttons:ButtonsSection,
-    perf:PerfSection, profiles:ProfilesSection, settings:SettingsSection,
+    perf:PerfSection, macro:MacroSection, profiles:ProfilesSection, settings:SettingsSection,
   }[section]
 
   const connLabel = state.conn==='usb'?'USB-C':state.conn==='2.4ghz'?'2.4GHz':state.conn==='bluetooth'?'BT':'—'
@@ -402,6 +435,19 @@ export default function App(){
       {/* toast */}
       {toastMsg && (
         <div className={'app-toast'+(toastMsg.err?' err':'')}>{toastMsg.msg}</div>
+      )}
+
+      {/* auto-update banner */}
+      {updateReady ? (
+        <div className="update-bar ready">
+          <span>🎉 Update v{updateAvailable} ready</span>
+          <button className="update-btn" onClick={()=> api.installUpdate()}>Restart now</button>
+        </div>
+      ) : updateProgress > 0 && (
+        <div className="update-bar">
+          <span>⬇ Downloading update… {updateProgress}%</span>
+          <div className="update-prog-track"><div className="update-prog-fill" style={{width: updateProgress+'%'}}/></div>
+        </div>
       )}
 
 

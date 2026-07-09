@@ -1,7 +1,8 @@
 import { app, shell, BrowserWindow, ipcMain, nativeTheme, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs'
+import { autoUpdater } from 'electron-updater'
+import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from 'fs'
 import { homedir } from 'os'
 
 // ─── driver ──────────────────────────────────────────────────────────────────
@@ -21,6 +22,8 @@ const CFG = join(homedir(), '.config', 'opensharkx11')
 mkdirSync(CFG, { recursive: true })
 const STATE_FILE = join(CFG, 'state.json')
 const PROFILES_FILE = join(CFG, 'profiles.json')
+const MACROS_DIR = join(CFG, 'macros')
+mkdirSync(MACROS_DIR, { recursive: true })
 
 function loadJson<T>(f: string, fb: T): T {
   try { if (existsSync(f)) return JSON.parse(readFileSync(f, 'utf8')) } catch {}
@@ -322,6 +325,35 @@ app.whenReady().then(() => {
   app.on('browser-window-created', (_, w) => optimizer.watchWindowShortcuts(w))
   createWindow()
   createTray()
+
+  // ── auto-updater (only in packaged builds — dev has no app-update.yml) ──
+  ipcMain.on('updater:install', () => autoUpdater.quitAndInstall())
+
+  if (!is.dev) {
+    autoUpdater.autoDownload = true
+    autoUpdater.autoInstallOnAppQuit = true
+
+    autoUpdater.on('checking-for-update', () => {
+      mainWin?.webContents.send('updater:checking-for-update')
+    })
+    autoUpdater.on('update-available', (info) => {
+      mainWin?.webContents.send('updater:update-available', info)
+    })
+    autoUpdater.on('download-progress', (progress) => {
+      mainWin?.webContents.send('updater:download-progress', progress)
+    })
+    autoUpdater.on('update-downloaded', (info) => {
+      mainWin?.webContents.send('updater:update-downloaded', info)
+    })
+    autoUpdater.on('error', (err) => {
+      console.warn('[updater] error:', err.message)
+    })
+
+    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+      console.warn('[updater] checkForUpdates failed:', err.message)
+    })
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -434,6 +466,36 @@ app.whenReady().then(() => {
         try {
           console.log(`[connect] tentando ${mode === ConnectionMode.Adapter ? '2.4GHz' : 'USB'} (0x${mode.toString(16)})...`)
           const d = new AttackSharkX11({ connectionMode: mode, delayMs: SAFE_DELAY })
+
+          if (process.platform === 'linux') {
+            try {
+              // Находим нативное устройство libusb через список
+              const nativeDev = usb.getDeviceList().find(usbD => 
+                usbD.deviceDescriptor.idVendor === 0x1d57 || 
+                usbD.deviceDescriptor.idVendor === 0x248a
+              );
+              if (nativeDev) {
+                nativeDev.open();
+                // Отвязываем ТОЛЬКО vendor-specific интерфейсы (protocol=0).
+                // НЕ трогаем boot mouse (protocol=2) и boot keyboard (protocol=1),
+                // иначе курсор мыши перестаёт работать.
+                for (const iface of nativeDev.interfaces || []) {
+                  const proto = iface.descriptor?.bInterfaceProtocol ?? 0
+                  if (proto === 1 || proto === 2) {
+                    console.log(`[linux-fix] Пропускаем интерфейс ${iface.interfaceNumber} (boot protocol=${proto})`)
+                    continue
+                  }
+                  if (iface.isKernelDriverActive()) {
+                    iface.detachKernelDriver();
+                    console.log(`[linux-fix] Отвязан интерфейс ${iface.interfaceNumber}`);
+                  }
+                }
+                nativeDev.close();
+              }
+            } catch (err: any) {
+              console.warn('[linux-fix] Ошибка при отвязке ядерного драйвера:', err.message);
+            }
+          }
           await d.open()
           const modeName = mode === ConnectionMode.Adapter ? 'wireless' : 'wired'
           attachDriver(d, modeName)
@@ -528,6 +590,30 @@ app.whenReady().then(() => {
     profiles[n] = cfg ? { ...DEFAULT_STATE, ...cfg } : structuredClone(state)
     save(PROFILES_FILE, profiles)
     return Object.keys(profiles)
+  })
+
+  // ── macro library ──
+  ipcMain.handle('macros:list', () => {
+    try {
+      return readdirSync(MACROS_DIR)
+        .filter(f => f.endsWith('.json'))
+        .map(f => {
+          try { return JSON.parse(readFileSync(join(MACROS_DIR, f), 'utf8')) }
+          catch { return null }
+        })
+        .filter(Boolean)
+    } catch { return [] }
+  })
+
+  ipcMain.handle('macros:save', (_evt, macro: { id: string; name: string; events: unknown[]; mode: number; repeat: number }) => {
+    if (!macro?.id) throw new Error('Invalid macro')
+    writeFileSync(join(MACROS_DIR, macro.id + '.json'), JSON.stringify(macro, null, 2))
+  })
+
+  ipcMain.handle('macros:delete', (_evt, id: string) => {
+    if (!id) throw new Error('Invalid id')
+    const fp = join(MACROS_DIR, id + '.json')
+    if (existsSync(fp)) unlinkSync(fp)
   })
   ipcMain.handle('profiles:load',   (_evt, name: unknown) => profiles[assertName(name)] ?? null)
   ipcMain.handle('profiles:delete', (_evt, name: unknown) => {

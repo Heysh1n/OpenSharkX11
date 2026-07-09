@@ -1,9 +1,9 @@
 {
   "name": "opensharkx11",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Attack Shark X11 — native Linux configurator",
   "main": "out/main/index.js",
-  "author": "Clevs",
+  "author": "Clevs + Heysh1n",
   "license": "MIT",
   "scripts": {
     "dev": "env -u ELECTRON_RUN_AS_NODE ELECTRON_OVERRIDE_DIST_PATH=/usr/lib/electron34 electron-vite dev",
@@ -33,6 +33,13 @@
     "productName": "OpenSharkX11",
     "artifactName": "opensharkx11-${version}.${ext}",
     "copyright": "Copyright © 2025 Clevs",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Heysh1n",
+        "repo": "OpenSharkX11"
+      }
+    ],
     "directories": {
       "output": "dist"
     },
@@ -89,6 +96,7 @@
     "@fontsource/jetbrains-mono": "^5.2.5",
     "@vitejs/plugin-react": "^6.0.2",
     "dbus-next": "^0.10.2",
+    "electron-updater": "^6.8.9",
     "pino": "10.3.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

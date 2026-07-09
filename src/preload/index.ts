@@ -43,6 +43,29 @@ const api = {
   profilesSave: (name: string, cfg?: object): Promise<string[]> => ipcRenderer.invoke('profiles:save', name, cfg),
   profilesLoad: (name: string) => ipcRenderer.invoke('profiles:load', name),
   profilesDelete: (name: string): Promise<string[]> => ipcRenderer.invoke('profiles:delete', name),
+
+  // macro library
+  macrosList: (): Promise<object[]> => ipcRenderer.invoke('macros:list'),
+  macroSave: (macro: object): Promise<void> => ipcRenderer.invoke('macros:save', macro),
+  macroDelete: (id: string): Promise<void> => ipcRenderer.invoke('macros:delete', id),
+
+  // auto-updater
+  onUpdateAvailable: (cb: (version: string) => void) => {
+    const h = (_: unknown, info: { version: string }) => cb(info.version)
+    ipcRenderer.on('updater:update-available', h)
+    return () => ipcRenderer.off('updater:update-available', h)
+  },
+  onUpdateProgress: (cb: (percent: number) => void) => {
+    const h = (_: unknown, progress: { percent: number }) => cb(progress.percent)
+    ipcRenderer.on('updater:download-progress', h)
+    return () => ipcRenderer.off('updater:download-progress', h)
+  },
+  onUpdateDownloaded: (cb: () => void) => {
+    const h = () => cb()
+    ipcRenderer.on('updater:update-downloaded', h)
+    return () => ipcRenderer.off('updater:update-downloaded', h)
+  },
+  installUpdate: () => ipcRenderer.send('updater:install'),
 }
 
 try {
