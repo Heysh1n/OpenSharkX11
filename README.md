@@ -19,7 +19,7 @@
 
 ---
 
-## 🛠 Project Architecture
+## 🏛️ Project Architecture
 * **Driver Core**: TypeScript implementation of the USB HID protocol (Report ID 0x03xx).
 * **Communication**: Direct `/dev/hidraw` interaction via `libusb`.
 * **Runtime**: Electron + React (UI).
@@ -27,7 +27,7 @@
 
 ---
 
-## 🏗 Key Features
+## 🍃 Key Features
 
 ### Original Implementation (by HarukaYamamoto0)
 * Initial HID protocol research for the Attack Shark X11.
@@ -41,7 +41,6 @@
     * Full-featured Macro Editor with a timeline, delay tuning, and mapping to any HID key code.
 * **Localization**: Full support for EN, RU, TR, PT, ZH, ES, DE, KO, JA.
 * **CI/CD & Updates**: Automated GitHub Actions builds (AppImage/DEB) and integrated `electron-updater` for seamless patching.
-* **SFC PRO Integration**: Built-in support for context-aware code collection.
 
 ---
 
